@@ -1,6 +1,6 @@
 # plot building footprints of a city
 
-from src import Utilities
+import Utilities
 
 import folium
 import folium.plugins

@@ -5,16 +5,16 @@ Author: Tian You
 Date: 2024-09-01
 '''
 
-from src import plot_city
-from src import PrepareBldData
-from src import IDA_ReprBld
-from src import ClassifyBld
-from src import IMSim
-from src import RegionalLossSim
-from src import BldPSPA_ReprBld
-from src.PythonLib.MDOFModel.IDA import IDA
-from src import Utilities
-from src.EQsources import EQsource, plot_earthquake_events_folium
+from CNCityRisk import plot_city
+from CNCityRisk import PrepareBldData
+from CNCityRisk import IDA_ReprBld
+from CNCityRisk import ClassifyBld
+from CNCityRisk import IMSim
+from CNCityRisk import RegionalLossSim
+from CNCityRisk import BldPSPA_ReprBld
+from CNCityRisk.PythonLib.MDOFModel.IDA import IDA
+from CNCityRisk import Utilities
+from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
 
 from pathlib import Path
 import pandas as pd

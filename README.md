@@ -13,7 +13,7 @@
 - `README.md`：项目简介和文件夹结构说明（即本文件）。
 - `Main.py`：主要分析步骤。
 - `requirements.txt`：项目所需的Python库列表。
-- `src/`： 包含数据处理和分析的脚本文件。
+- `CNCityRisk/`： 包含数据处理和分析的脚本文件。
   - `Data/`：存放原始数据和处理后的数据文件。
     - `BldData`：处理后的建筑的基本信息，包括高度、面积、结构类型等，用于生成结构模型。
     - `CNBldFootprintHeight_Che2024`：建筑轮廓和高度的源数据文件。

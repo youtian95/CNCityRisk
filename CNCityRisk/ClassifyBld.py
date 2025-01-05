@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .PythonLib.BldCluster import BldCluster
-from src import Utilities
+import Utilities
 
 # parameters
 STRUCT_CLASS_LABELS = ['story','area','structure','SeismicDesignLevel','EQGroup','SiteClass']

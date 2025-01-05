@@ -5,15 +5,15 @@ Author: Tian You
 Date: 2024-09-01
 '''
 
-from src import plot_city
-from src import PrepareBldData
-from src import IDA_ReprBld
-from src import ClassifyBld
-from src import IMSim
-from src import RegionalLossSim
-from src import BldPSPA_ReprBld
-from src.PythonLib.MDOFModel.IDA import IDA
-from src import Utilities
+from CNCityRisk import plot_city
+from CNCityRisk import PrepareBldData
+from CNCityRisk import IDA_ReprBld
+from CNCityRisk import ClassifyBld
+from CNCityRisk import IMSim
+from CNCityRisk import RegionalLossSim
+from CNCityRisk import BldPSPA_ReprBld
+from CNCityRisk.PythonLib.MDOFModel.IDA import IDA
+from CNCityRisk import Utilities
 
 from pathlib import Path
 import pandas as pd
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     if 0:
         DistrictName = '武昌区'
         IM_mat_Bld = np.loadtxt(f'results/IMsim/IM_mat_Bld_{CityName[i_city]}_{DistrictName}.txt')
-        BldsFile = Path('./src/Data/BldData/') / CityName[i_city] / f'{DistrictName}.csv'
+        BldsFile = Path('./CNCityRisk/Data/BldData/') / CityName[i_city] / f'{DistrictName}.csv'
         RegionalLossSim.simulate_regional_losses(IM_mat_Bld, BldsFile, 'results/RegionalLossSim/', losstype='DS_Struct')
 
     # Figures: plot regional seismic loss
