@@ -1,0 +1,10 @@
+,DesignLevel,NumberOfStories,OccupancyClass,PlanArea,StructureType
+0,high-code,1.0,RES3,20380.0,W1
+1,moderate-code,1.0,RES3,4780.0,W1
+2,moderate-code,2.0,RES3,2380.0,W1
+3,pre-code,1.0,RES1,2380.0,W1
+4,pre-code,1.0,RES3,2380.0,RM1
+5,pre-code,2.0,RES3,3580.0,W1
+6,pre-code,3.0,RES3,37380.0,S1
+7,pre-code,4.0,RES3,2180.0,RM1
+8,pre-code,4.0,RES3,20280.0,S2
