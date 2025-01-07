@@ -84,6 +84,6 @@ if __name__ == '__main__':
         RegionalLossSim.plot_regional_losses(CityName, DistrictName='武昌区', LossType='DS_Struct')
     # Figures: plot CDF of regional seismic loss
     if 1:
-        RegionalLossSim.plot_CDF_regional_losses(CityName, LossType='RepairCost_Total', i_rup = 0, iSim = 0)
+        RegionalLossSim.plot_CDF_regional_losses(CityName, LossType='DS_Struct', i_rup = 0, iSim = 0, PlotNow=False)
 
     

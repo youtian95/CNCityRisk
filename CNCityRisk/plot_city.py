@@ -1,6 +1,6 @@
 # plot building footprints of a city
 
-import Utilities
+from . import Utilities
 
 import folium
 import folium.plugins
@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import tqdm
 import geopandas as gpd
+from shapely.geometry import Polygon
 
 Palette = Utilities.FACECOLOR_HEX # color palette: green blue yellow red
 
@@ -266,7 +267,12 @@ def Add_DistrictBoundary_to_FoliumMap(m: folium.Map, CityName: str, DistrictName
         DistrictName (str): Name of the district.
     '''
     district_polygon = Utilities.get_district_polygon(CityName, DistrictName)
-    for polygon in district_polygon.geoms:
+    if isinstance(district_polygon, Polygon):
+        polygons = [district_polygon]
+    else:
+        polygons = district_polygon.geoms
+
+    for polygon in polygons:
         coord_district = list(polygon.exterior.coords)
         coord_district = [(lat, lon) for lon, lat in coord_district]
         district = folium.PolyLine(coord_district, color='red', weight=1, dash_array='5')

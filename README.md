@@ -33,12 +33,12 @@
 
 
 
-## 配置环境步骤
+## 安装步骤
 1. **创建虚拟环境**：
     - 打开Anaconda Prompt（或终端）。
     - 使用以下命令创建一个新的虚拟环境（例如，环境名称为`quake_resilience`）：
       ```bash
-      conda create --name quake_resilience python=3.11
+      conda create --n quake_resilience python=3.11
       ```
 1. **激活虚拟环境**：
     - 使用以下命令激活刚刚创建的虚拟环境：
@@ -46,9 +46,9 @@
       conda activate quake_resilience
       ```
 1. **安装依赖库**：
-    - 运行以下命令安装项目所需的Python库：
+    - 将`cncityrisk-0.1.0-py3-none-any.whl`下载到工作文件夹内，运行以下命令安装项目所需的Python库：
       ```bash
-      pip install -r requirements.txt
+      pip install cncityrisk-0.1.0-py3-none-any.whl
       ```
 1. **运行项目**：
     - 完成以上配置后，就可以运行`Main.py`文件

@@ -1,4 +1,4 @@
-import ClassifyBld
+from . import ClassifyBld
 from .PythonLib.MDOFModel.Tool_IDA import main_IDA
 
 from pathlib import Path

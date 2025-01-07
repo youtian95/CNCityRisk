@@ -16,8 +16,14 @@ import h5py
 
 # API key
 config = configparser.ConfigParser()
-config.read('config.ini')
-API_KEY_OPENTOPOGRAPHY = config['API']['api_key_OpenTopography']
+config_file = Path('config.ini')
+if not config_file.exists():
+    raise FileNotFoundError(f"Configuration file {config_file} not found.")
+config.read(config_file)
+try:
+    API_KEY_OPENTOPOGRAPHY = config['API']['api_key_OpenTopography']
+except KeyError:
+    raise KeyError("API key 'api_key_OpenTopography' not found in the configuration file.")
 
 # Path to the data
 CHINA_ADMINDIVISON_SHP = (Path(__file__).parent / './Data/ChinaAdminDivisonSHP-24.02.06').resolve()
