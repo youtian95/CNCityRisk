@@ -16,11 +16,12 @@ EQ_SOURCES_OUTPUT_DIR = Path(__file__).parent / 'results/EQsources'
 
 def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opacity=0.5):
     # Plot the earthquake events
+
     
     results_dir = EQ_SOURCES_OUTPUT_DIR / CityName
 
-    for file in results_dir.glob('*ruptures*.csv'):
-        rup_df = pd.read_csv(file, header=1)
+    rup_df = ReadCityRuptures(CityName)
+
     for file in results_dir.glob('*events*.csv'):
         events_d = pd.read_csv(file, header=1)
     
@@ -36,6 +37,9 @@ def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opa
     # add the rupture points
     for i in range(len(rup_df)):
         Create_a_Rupture_Polygon(m, rup_df.iloc[i])
+
+    # adjust the map
+    m.fit_bounds(m.get_bounds())
 
     # add location popup
     folium.LatLngPopup().add_to(m)
@@ -54,6 +58,7 @@ def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
         m: folium.Map
         rupture: pd.Series. columns: mag, rake, centroid_lat, centroid_lon, strike, dip, centroid_depth, W_km (optional), length_km (optional)
     '''
+    i_rup = rupture['i_rup']
     mag = rupture['mag']
     rake = rupture['rake']
     if 'W_km' not in rupture.index:
@@ -71,7 +76,7 @@ def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
     centroid_depth = rupture['centroid_depth']
     RuptureNormal_x, RuptureNormal_y, RuptureNormal_z = Utilities.CalcRuptureNormal(strike, dip)
     latlon_polygon = Utilities.Calc4CornersEQRupt(W_km, length_km, lat_Hypo, lon_Hypo, RuptureNormal_x, RuptureNormal_y, RuptureNormal_z)
-    popup_info = f'Magnitude: {mag}<br>Strike: {strike:.1f}<br>Dip: {dip:.1f}<br>Rake: {rake:.1f}<br>Depth: {centroid_depth:.1f}<br>Length: {length_km:.1f} km<br>Width: {W_km:.1f} km'
+    popup_info = f'i_rup: {i_rup}<br>Magnitude: {mag}<br>Strike: {strike:.1f}<br>Dip: {dip:.1f}<br>Rake: {rake:.1f}<br>Depth: {centroid_depth:.1f}<br>Length: {length_km:.1f} km<br>Width: {W_km:.1f} km'
     latlon_polygon = [(lat, lon) for lat, lon in latlon_polygon]
     folium.Polygon(latlon_polygon, color='black', weight=1, fill=True, fill_color='red', fill_opacity=0.5, popup=popup_info).add_to(m)
 
@@ -202,5 +207,7 @@ def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.D
         rup_df = pd.read_csv(file, header=1, dtype={'rup_id': str, 'trt': str, 'multiplicity': int})
         float_columns = rup_df.columns.difference(['rup_id', 'trt', 'multiplicity'])
         rup_df[float_columns] = rup_df[float_columns].astype(float)
+        # add i_rup
+        rup_df['i_rup'] = rup_df.index
 
     return rup_df

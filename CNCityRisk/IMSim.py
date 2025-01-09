@@ -496,7 +496,7 @@ def ReadEQSourceInfo(EQSourceFile: Path) -> dict:
         "Zhyp_km": Zhyp_km
     }
 
-def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, IMvec: np.array, caption: str = 'Spectral Acceleration (Sa) at T=0.01 seconds (g)'):
+def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, IMvec: np.array, caption: str = 'Spectral Acceleration (Sa) at T=0.01 seconds (g)', GridDist: float=0.01):
     '''
     Add IM field to folium map
 
@@ -506,6 +506,7 @@ def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, 
         latVec: np.array - latitude of each site
         IMvec: np.array - IM values
         caption: str - caption of the color bar
+        GridDist: float - grid distance in degrees. 0.001 = 100 meters
     '''
 
     x = lonVec
@@ -514,8 +515,8 @@ def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, 
 
     # Create a grid of points
     # 0.001 = 100 meters
-    X, Y = np.meshgrid(np.linspace(min(x), max(x), int((max(x) - min(x)) / 0.0002)),
-                np.linspace(min(y), max(y), int((max(y) - min(y)) / 0.0002)))  
+    X, Y = np.meshgrid(np.linspace(min(x), max(x), int((max(x) - min(x)) / GridDist)),
+                np.linspace(min(y), max(y), int((max(y) - min(y)) / GridDist)))  
     Z = griddata((x, y), z, (X, Y), method='cubic')
 
     # Create a contour plot using matplotlib's tricontourf

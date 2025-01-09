@@ -63,7 +63,7 @@ if __name__ == '__main__':
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 0:
+    if 1:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
@@ -81,9 +81,7 @@ if __name__ == '__main__':
 
     # Figures: plot regional seismic loss
     if 0:
-        RegionalLossSim.plot_regional_losses(CityName, DistrictName='武昌区', LossType='DS_Struct')
-    # Figures: plot CDF of regional seismic loss
-    if 1:
-        RegionalLossSim.plot_CDF_regional_losses(CityName, LossType='DS_Struct', i_rup = 0, iSim = 0, PlotNow=False)
+        RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
+        # RegionalLossSim.plot_regional_losses(CityName, DistrictName = '武昌区', LossType='DS_Struct', iSim = 0)
 
     

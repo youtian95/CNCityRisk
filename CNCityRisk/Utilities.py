@@ -101,6 +101,22 @@ def get_DistrictsOfCity_polygons(CityName) -> gpd.GeoDataFrame:
 
     return districts_gdf
 
+def get_DistrictsOfCity_names(CityName) -> list:
+    '''
+    Get the names of districts of a city from the shapefile.
+    Parameters:
+        CityName (str): Name of the city.
+    Returns:
+        DistrictNames (list): Names of districts of the city.
+    '''
+    district_shapefile = gpd.read_file(CHINA_ADMINDIVISON_SHP/'4. District'/'district.shp')
+
+    DistrictNames = district_shapefile[district_shapefile['ct_name'].str.contains(CityName)]['dt_name'].tolist()
+    if not DistrictNames:
+        raise ValueError(f"City {CityName} not found in the shapefile.")
+
+    return DistrictNames
+
 def get_district_polygon(CityName, DistrictName):
     '''
     Get the polygon of a district from the shapefile.

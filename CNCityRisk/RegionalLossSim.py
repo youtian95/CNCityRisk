@@ -22,6 +22,8 @@ from typing import Union
 import xyzservices
 import branca.colormap as cm
 import py7zr
+import base64
+from io import BytesIO
 
 Palette = Utilities.FACECOLOR_HEX # color palette: green blue yellow red
 RESULTDIR = Path(__file__).resolve().parent / 'results/RegionalLossSim/'
@@ -100,8 +102,27 @@ def simulate_regional_losses(IM_sim: Union[np.ndarray, da.Array], Bld_gdf: gpd.G
                         else:
                             f.create_dataset(f'BldID_{idx_i}', data=sim_loss[i], dtype='float32')
                     pbar.update(len(idx))
-  
-def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = 0, BaseMap: str = 'Cartodb Positron', savedir = None, ShowInBrowser: bool = True) -> folium.Map:
+
+def create_maps_city_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', iSim: int = 0, BaseMap: str = 'Cartodb Positron', savedir = None, Overwrite: bool = False):
+    '''
+    Create maps for the regional seismic losses. Each rupture has a map.
+    '''
+    # find the district names
+    DistrictNames = Utilities.get_DistrictsOfCity_names(CityName)
+
+    rup_df = EQsources.ReadCityRuptures(CityName)
+
+    # iterate over the district names
+    for DistrictName in DistrictNames:
+        print(f'Creating maps for {CityName}, {DistrictName}...')
+        # iterate over the ruptures
+        for i_rup in range(len(rup_df)):
+            plot_regional_losses(CityName, DistrictName=DistrictName, ResultsDir=ResultsDir, LossType=LossType, i_rup=i_rup, iSim=iSim, BaseMap=BaseMap, savedir=savedir, ShowInBrowser=False, Overwrite=Overwrite)
+
+    for i_rup in range(len(rup_df)):
+        plot_CDF_regional_losses(CityName, LossType=LossType, i_rup = i_rup, iSim = iSim, PlotNow=False, Overwrite = Overwrite)
+
+def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = 0, BaseMap: str = 'Cartodb Positron', savedir = None, ShowInBrowser: bool = True, Overwrite: bool = False) -> folium.Map:
     """
     Plot the regional seismic losses. Each row index in Bld_gdf must correspond to each building ID in the files in ResultsDir.
     
@@ -120,15 +141,27 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
         folium.Map: Folium map object.
     """
 
+    if savedir is None:
+        savedir = ResultsDir
+
+    # where to save the map
+    filepath = Path(savedir) / f'RegionalLoss_{CityName}_{DistrictName}_{LossType}_{i_rup}_{iSim}.html'
+
+    # Check if the file already exists in the archive
+    if MAP_ZIP.exists():
+        with py7zr.SevenZipFile(MAP_ZIP, 'r') as archive:
+            existing_files = archive.getnames()
+            if filepath.name in existing_files:
+                if not Overwrite:
+                    print(f'{filepath.name} already exists in the archive. Skipping...')
+                    return None
+
     print(f'Reading building properties for plotting regional losses...')
     Bld_gdf = Utilities.get_CityBldData(CityName)
     if DistrictName is not None:
         Bld_gdf = Bld_gdf[Bld_gdf['DistrictName'] == DistrictName]
 
     ResultsDir = Path(ResultsDir).resolve()
-    
-    if savedir is None:
-        savedir = ResultsDir
     
     # Create a basemap
     Center = Bld_gdf.geometry.centroid.iloc[0].coords[0]
@@ -160,7 +193,7 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
     # plot the building loss polygons
     print('Adding building polygons to the map...')
     with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
-        Add_BldLoss_Polygon_to_FoliumMap(m, Bld_gdf, f, LossType, iSim_allRup, savedir=savedir)
+        Add_BldLoss_Polygon_to_FoliumMap(m, Bld_gdf, f, LossType, iSim_allRup)
 
     # add the IM field to map
     IMSim.Add_City_IMfield_to_FoliumMap(m, CityName, i_rup, iTplot = 1, iSim = iSim)
@@ -174,8 +207,6 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
     if DistrictName is not None:
         plot_city.Add_DistrictBoundary_to_FoliumMap(m, CityName, DistrictName)
 
-    # save the map
-    filepath = Path(savedir) / f'RegionalLoss_{CityName}_{DistrictName}_{LossType}_{i_rup}_{iSim}.html'
     m.save(filepath)
 
     if ShowInBrowser:
@@ -194,7 +225,7 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
 
     return m
 
-def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, Lossh5pyFile: h5py.File, LossType: str = 'DS_Struct', iSim: int = 0, savedir: Path = RESULTDIR) -> None:
+def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, Lossh5pyFile: h5py.File, LossType: str = 'DS_Struct', iSim: int = 0) -> None:
     """
     Add building loss polygons to a Folium map.
 
@@ -204,7 +235,6 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
         Lossh5pyFile (h5py.File): HDF5 file containing the simulated regional losses. Each dataset is named as 'BldID_i'. ID should be the same as the index of Bld_gdf.
         LossType (str): Type of loss to plot. Options are 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime'.
         iSim (int): Index of the simulation in the HDF5 file.
-        savedir (Path): Directory to save the intermediate legend images. Default is 'results/RegionalLossSim/'.
     """
 
     f = Lossh5pyFile
@@ -261,9 +291,17 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
     ax.legend(handles=legend_elements, loc='upper right', title=LossType)
     ax.axis('off')
     fig.patch.set_alpha(0.0)  # Set the background to be transparent
-    legend_path = savedir / 'legend_Bld.png'
     fig.set_size_inches(1, 1)
-    fig.savefig(legend_path, bbox_inches='tight', pad_inches=0.0, transparent=True)
+
+    # Save the figure to a BytesIO object
+    buf = BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.0, transparent=True)
+    buf.seek(0)
+
+    # Encode the image in base64
+    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    buf.close()
+
     # Add custom CSS to position the legend in the top right corner
     css = """
     <style>
@@ -279,7 +317,7 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
     legend_html = f"""
     {css}
     <div class='legend_Bld'>
-        <img src='./legend_Bld.png' alt='legend_Bld'>
+        <img src='data:image/png;base64,{image_base64}' alt='legend_Bld'>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -378,10 +416,23 @@ def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, L
             
     return total_loss_sim, total_loss_iSim, percentiles_iSim
 
-def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, SavePath: Path = None, PlotNow: bool = True):
+def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, SavePath: Path = None, PlotNow: bool = True, Overwrite: bool = False):
     '''
     plot the cumulative distribution function of total regional seismic losses.
     '''
+    
+    if SavePath is None:
+        SavePath = ResultsDir / f'CDF_{CityName}_{LossType}_{i_rup}_{iSim}.jpg'
+
+    # Check if the file already exists in the archive
+    if MAP_ZIP.exists():
+        with py7zr.SevenZipFile(MAP_ZIP, 'r') as archive:
+            existing_files = archive.getnames()
+            if SavePath.name in existing_files:
+                if not Overwrite:
+                    print(f'{SavePath.name} already exists in the archive. Skipping...')
+                    return None
+
     
     total_loss_sim, total_loss_iSim, percentiles_iSim = get_statistics_regional_losses(CityName, ResultsDir, LossType, i_rup, iSim)
 
@@ -418,8 +469,6 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
         ax.scatter([], [], color='r', label='The displayed simulation')
         ax.legend()
 
-    if SavePath is None:
-        SavePath = ResultsDir / f'CDF_{CityName}_{LossType}_{i_rup}_{iSim}.jpg'
     fig.savefig(SavePath)
 
     # Compress the map file into MAP_ZIP
