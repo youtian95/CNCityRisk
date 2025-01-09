@@ -65,7 +65,7 @@ multivolumefile==0.2.3
 munch==4.0.0
 networkx==3.2.1
 numba==0.58.1
-numpy==1.26.2
+numpy>=1.26.2
 onnxruntime==1.16.3
 openpyxl==3.1.5
 openquake.engine==3.21.0
