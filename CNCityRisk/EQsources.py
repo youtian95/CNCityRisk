@@ -11,7 +11,7 @@ import webbrowser
 import xyzservices
 import math
 
-CHN_EQS_DIR = Path('Data/GEM-CHN-v2021.1.0')
+CHN_EQS_DIR = Path(__file__).parent / 'Data/GEM-CHN-v2021.1.0'
 EQ_SOURCES_OUTPUT_DIR = Path(__file__).parent / 'results/EQsources'
 
 def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opacity=0.5):
@@ -58,7 +58,10 @@ def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
         m: folium.Map
         rupture: pd.Series. columns: mag, rake, centroid_lat, centroid_lon, strike, dip, centroid_depth, W_km (optional), length_km (optional)
     '''
-    i_rup = rupture['i_rup']
+    if 'i_rup' not in rupture.index:
+        i_rup = None
+    else:
+        i_rup = rupture['i_rup']
     mag = rupture['mag']
     rake = rupture['rake']
     if 'W_km' not in rupture.index:
@@ -140,7 +143,7 @@ class EQsource:
         if not self.results_dir.exists():
             self.results_dir.mkdir(parents=True)
 
-        self.log_file = results_dir / 'op_engine.log'
+        self.log_file = self.results_dir / 'op_engine.log'
 
         purge.purge_all()
 

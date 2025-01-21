@@ -530,6 +530,7 @@ def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, 
   
     # Convert the contour plot to geojson
     geojson = geojsoncontour.contourf_to_geojson(contourf=contour, ndigits=3)
+    
 
     # Add the contour plot to the folium map
     folium.GeoJson(

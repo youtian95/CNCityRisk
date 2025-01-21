@@ -322,6 +322,8 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
     """
     m.get_root().html.add_child(folium.Element(legend_html))
 
+    plt.close('all')
+
 def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None):
     '''
     Get the statistics of the regional seismic losses, given an earthquake event.
@@ -484,4 +486,6 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
     
     if PlotNow:
         plt.show()
+    else:
+        plt.close('all')
 

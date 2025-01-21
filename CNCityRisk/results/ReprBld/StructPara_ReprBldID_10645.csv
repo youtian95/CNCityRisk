@@ -1,0 +1,5 @@
+damping ratio,Hysteretic curve type,"Hysteretic parameter, tao",Typical story height (m),T1 (s),Sa(T1) (g)
+0.05,Kinematic hardening,[],4.572,0.8,0.11404900306428983
+No. of story,Floor mass (kg),Elastic shear stiffness (N/m),Design shear force (N),Design displacement (m),Yield shear force (N),Yield displacement (m),Ultimate shear force (N),Ultimage displacement (m),Complete damage displacement (m)
+1,9900000,1597165014.7702293,18810558.271405585,0.011777467010264874,15675465.22617132,0.009814555841887394,31350930.45234264,0.11777467010264873,0.24003
+2,9900000,1597165014.7702293,12540372.180937057,0.007851644673509916,10450310.15078088,0.00654303722792493,20900620.30156176,0.07851644673509917,0.24003

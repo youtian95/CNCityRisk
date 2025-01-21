@@ -23,7 +23,7 @@ import cProfile
 import pstats
 
 # The target cities 
-CityName = '武汉'
+CityName = '合肥'
 
 if __name__ == '__main__':
 
@@ -33,9 +33,11 @@ if __name__ == '__main__':
     if 0:
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
     if 0:
+        # classify per structural type
         ClassifyBld.BldClassify(CityName)
     if 0:
-        ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, StartFromScratch=True, ReprColName='ReprBldID_PSPA')
+        # classify per PSPA
+        ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
 
     # Figures: plot city buildings
     if 0:
@@ -63,7 +65,7 @@ if __name__ == '__main__':
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 1:
+    if 0:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
@@ -80,7 +82,7 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
     # Figures: plot regional seismic loss
-    if 0:
+    if 1:
         RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
         # RegionalLossSim.plot_regional_losses(CityName, DistrictName = '武昌区', LossType='DS_Struct', iSim = 0)
 

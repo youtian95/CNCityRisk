@@ -161,7 +161,7 @@ def LossAssess(ReprBldPSPADir: Path = ReprBldPSPADir, ReprBldDir: Path = ReprBld
     with h5py.File(hdf5File, "a") as f:
         if not StartOver:
             # skip buildings that have already been simulated
-            ReprBldIDs = f.keys()
+            ReprBldIDs = [key.split('_')[-1] for key in f.keys()]
             ReprBld_df = ReprBld_df[~ReprBld_df['ReprPSPAID'].astype(str).isin(ReprBldIDs)]
         else:
             # remove the repr buildings in hdf5File that are included in ReprBldPSPADir, so that the loss simulations can be re-run

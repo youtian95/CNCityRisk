@@ -251,7 +251,11 @@ def Add_CityBoundary_to_FoliumMap(m: folium.Map, CityName: str):
         CityName (str): Name of the city.
     '''
     city_polygon = Utilities.get_city_polygon(CityName)
-    for polygon in city_polygon.geoms:
+    if isinstance(city_polygon, Polygon):
+        polygons = [city_polygon]
+    else:
+        polygons = city_polygon.geoms
+    for polygon in polygons:
         coord_city = list(polygon.exterior.coords)
         coord_city = [(lat, lon) for lon, lat in coord_city]
         city = folium.PolyLine(coord_city, color='blue', weight=1, dash_array='5')

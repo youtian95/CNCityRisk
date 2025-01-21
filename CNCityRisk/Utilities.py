@@ -12,6 +12,8 @@ import requests
 import configparser
 import rasterio
 import h5py
+import sys
+sys.path.append(str(Path(__file__).parent / 'PythonLib/BldStructClassify/'))
 
 
 # API key
@@ -347,10 +349,15 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
         CityPOIDir = CityPOIDir[0]
 
     # Merge all POI data within CityPOIDir for the city
-    POI_files = list(CityPOIDir.glob('*.xlsx'))
+    POI_files = list(CityPOIDir.glob('*.xlsx')) + list(CityPOIDir.glob('*.csv'))
     POI_gdf = gpd.GeoDataFrame()
     for POI_file in POI_files:
-        df = pd.read_excel(POI_file)
+        if POI_file.suffix == '.xlsx':
+            df = pd.read_excel(POI_file)
+        elif POI_file.suffix == '.csv':
+            df = pd.read_csv(POI_file)
+        else:
+            raise Exception(f"Unsupported file format: {POI_file.suffix}")
         if 'wgs84lon' in df.columns and 'wgs84lat' in df.columns:
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['wgs84lon'], df['wgs84lat']))
         elif 'WGS84_经度' in df.columns and 'WGS84_纬度' in df.columns:
