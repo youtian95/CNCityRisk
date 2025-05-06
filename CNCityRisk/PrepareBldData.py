@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 
 from .Utilities import *
-from .PythonLib.MDOFModel.MDOF_CN import MDOF_CN
+from MDOFModel.MDOF_CN import MDOF_CN
 
 
 def prepare_building_data(CityName, MinBldArea = None):

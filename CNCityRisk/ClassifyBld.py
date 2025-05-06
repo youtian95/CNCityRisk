@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from .PythonLib.BldCluster import BldCluster
+from BldCluster import BldCluster
 from . import Utilities
 
 # parameters

@@ -12,10 +12,10 @@ from CNCityRisk import ClassifyBld
 from CNCityRisk import IMSim
 from CNCityRisk import RegionalLossSim
 from CNCityRisk import BldPSPA_ReprBld
-from CNCityRisk.PythonLib.MDOFModel.IDA import IDA
 from CNCityRisk import Utilities
 from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
 
+from MDOFModel.IDA import IDA
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -41,9 +41,9 @@ if __name__ == '__main__':
 
     # Figures: plot city buildings
     if 0:
-        plot_city.plot_BldFootprints_properties(CityName = CityName, prop = 'structure')
+        plot_city.plot_BldFootprints_properties(CityName = CityName, DistrictName='包河区', prop = 'structure')
     if 0:
-        plot_city.plot_histogram_bld(CityName = CityName, prop = 'story')
+        plot_city.plot_histogram_bld(CityName = CityName, DistrictName='包河区', prop = 'story')
 
     # IDA analysis for individual representative buildings
     if 0:
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     # Figures: plot IDA results for one buiding
     if 0:
         ReprBld = 100
-        IDA_results = 'IDA_result_ReprBldID_'+str(ReprBld)+'.csv'
+        IDA_results = (IDA_ReprBld.OutputDir / ('IDA_result_ReprBldID_'+str(ReprBld)+'.csv')).as_posix()
         FigName = 'IDA.jpg'
         IDA.plot_IDA_results(IDA_results, Stat=True, FigName=FigName)
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     if 0:
         IMSim.CityBldIMSimFromEvents(CityName)
     if 0:
-        IMSim.Plot_IM_Spatial_City(CityName, i_rup=10)
+        IMSim.Plot_IM_Spatial_City(CityName, i_rup=24)
 
     # Regional seismic loss simulation
     if 0:
@@ -82,8 +82,7 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
     # Figures: plot regional seismic loss
-    if 1:
-        RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
-        # RegionalLossSim.plot_regional_losses(CityName, DistrictName = '武昌区', LossType='DS_Struct', iSim = 0)
+    if 0:
+        RegionalLossSim.create_maps_city_regional_losses(CityName, DistrictName = '包河区', LossType='DS_Struct', iSim = 0)
 
     

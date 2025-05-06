@@ -1,7 +1,7 @@
 # Perform probabilistic seismic loss assessment for individual representative buildings. Culmulative distribution functions (CDF) of the losses given any IM are provided. 
 
 from . import ClassifyBld
-from .PythonLib.MDOFModel import Tool_LossAssess
+from MDOFModel import Tool_LossAssess
 from . import IDA_ReprBld
 from . import Utilities
 

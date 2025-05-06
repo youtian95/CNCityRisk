@@ -1,27 +1,47 @@
 [build-system]
-requires = ["hatchling", "hatch-requirements-txt"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "CNCityRisk"
-version = "0.1.0"
+version = "0.1.1"
 dynamic = ["dependencies"]
-description = "A description of your project"
+description = "Regional seismic risk assessment of buildings of major cities in China"
 authors = [
-    { name="Tian You", email="youtian95@qq.com" }
+    { name="Tian You", email="youtian@njtech.edu.cn" }
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+keywords = ["seismic", "risk assessment", "building resilience", "China", "earthquake"]
+dependencies = [
+    "BldStructPred",
+    "MDOFModel",
+    "BldCluster",
+    "h5py",
+    "folium",
+    "openquake.engine",
+    "cartopy",
+    "dask",
+    "geojsoncontour",
+    "addressparser",
+    "xpinyin",
+    "py7zr",
+    "rasterio",
 ]
 
 [project.urls]
 Homepage = "https://github.com/youtian95/CNCityRisk"
+"Bug Tracker" = "https://github.com/youtian95/CNCityRisk/issues"
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[project.scripts]
+cncityrisk = "CNCityRisk.Main:main"
 
-[tool.hatch.metadata.hooks.requirements_txt]
-files = ["requirements.txt"]
+[tool.hatch.build.targets.wheel]
+packages = ["CNCityRisk"]

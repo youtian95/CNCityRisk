@@ -1,5 +1,5 @@
 from . import ClassifyBld
-from .PythonLib.MDOFModel.Tool_IDA import main_IDA
+from MDOFModel.Tool_IDA import main_IDA
 
 from pathlib import Path
 import pandas as pd
