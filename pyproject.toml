@@ -5,7 +5,6 @@ build-backend = "hatchling.build"
 [project]
 name = "CNCityRisk"
 version = "0.1.1"
-dynamic = ["dependencies"]
 description = "Regional seismic risk assessment of buildings of major cities in China"
 authors = [
     { name="Tian You", email="youtian@njtech.edu.cn" }
@@ -29,19 +28,24 @@ dependencies = [
     "openquake.engine",
     "cartopy",
     "dask",
-    "geojsoncontour",
+    "geojsoncontour",    
     "addressparser",
-    "xpinyin",
+    "pypinyin",
     "py7zr",
     "rasterio",
+    "numpy>=1.26.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/youtian95/CNCityRisk"
 "Bug Tracker" = "https://github.com/youtian95/CNCityRisk/issues"
 
-[project.scripts]
-cncityrisk = "CNCityRisk.Main:main"
-
 [tool.hatch.build.targets.wheel]
-packages = ["CNCityRisk"]
+artifacts = [
+  "CNCityRisk/Data/BldData/",
+]
+
+[tool.hatch.build.targets.sdist]
+artifacts = [
+  "CNCityRisk/Data/BldData/",
+]

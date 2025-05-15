@@ -1,5 +1,5 @@
 import geopandas as gpd
-from xpinyin import Pinyin
+from pypinyin import lazy_pinyin
 import addressparser
 from tqdm import tqdm
 import re
@@ -22,8 +22,8 @@ def prepare_building_data(CityName, MinBldArea = None):
     
     # Get the province name
     df = addressparser.transform([CityName])
-    ProfName = df['省'][0].replace('省', '')
-    ProfName = Pinyin().get_pinyin(ProfName, '')
+    ProfName = df['省'][0].replace('省', '').replace('市', '')
+    ProfName = ''.join(lazy_pinyin(ProfName))
 
     # get all the districts
     districts_gdf = get_DistrictsOfCity_polygons(CityName)

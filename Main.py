@@ -23,13 +23,13 @@ import cProfile
 import pstats
 
 # The target cities 
-CityName = '合肥'
+CityName = '重庆'
 
 if __name__ == '__main__':
 
     # Prepare building data, including structural type, occupancy type...
     if 0:
-        PrepareBldData.prepare_building_data(CityName)
+        PrepareBldData.prepare_building_data(CityName, MinBldArea=50)
     if 0:
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
     if 0:
@@ -61,7 +61,7 @@ if __name__ == '__main__':
         BldPSPA_ReprBld.LossAssess()
 
     # Earthquake events generation
-    if 0:
+    if 1:
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events

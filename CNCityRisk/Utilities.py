@@ -3,8 +3,8 @@ import math
 import geopandas as gpd
 from shapely.geometry import Polygon, Point
 import addressparser
-from xpinyin import Pinyin
-from pickle import load
+from pypinyin import lazy_pinyin
+from joblib import load
 import pandas as pd
 from pyproj import Transformer
 from tqdm import tqdm
@@ -13,7 +13,9 @@ import configparser
 import rasterio
 import h5py
 import sys
-sys.path.append(str(Path(__file__).parent / 'PythonLib/BldStructClassify/'))
+import BldStructPred
+import numpy as np
+from packaging import version
 
 
 # API key
@@ -32,7 +34,12 @@ CHINA_ADMINDIVISON_SHP = (Path(__file__).parent / './Data/ChinaAdminDivisonSHP-2
 BLD_FOOTPRINT_PATH = (Path(__file__).parent / './Data/CNBldFootprintHeight_Che2024').resolve()
 POI_AMAP_PATH = (Path(__file__).parent / './Data/POI_AMAP_2020').resolve()
 BLD_DATA_PATH = (Path(__file__).parent / './Data/BldData').resolve()
-TRAINED_RF_BLDSTRUCT = (Path(__file__).parent / 'PythonLib/BldStructClassify/data/TrainedRF.pkl').resolve()
+np_version_obj = version.parse(np.__version__)
+if np_version_obj < version.parse('1.27.0'):
+    TRAINED_RF_BLDSTRUCT = Path(BldStructPred.__file__).parent / 'data/TrainedRF_numpy_v_1_26.joblib'
+else:
+    TRAINED_RF_BLDSTRUCT = Path(BldStructPred.__file__).parent / 'data/TrainedRF.joblib'
+TRAINED_RF_BLDSTRUCT = TRAINED_RF_BLDSTRUCT.resolve()
 MAP_POI_OCCUPANCY_PATH = (Path(__file__).parent / './Data/高德POI分类与HazusOccupancy对照表.xlsx').resolve()
 GB50011_A_FILE = (Path(__file__).parent / './Data/GB50011-2010(2016)-Appendix-A.csv').resolve()
 VS30FILE = (Path(__file__).parent / './Data/China_Mainland_SCK_Vs30.xlsx').resolve()   
@@ -243,7 +250,7 @@ def _GetCityBldData_FromSHP(CityName, Center = None, Radius = 2500):
     # Get the province name
     df = addressparser.transform([CityName])
     ProfName = df['省'][0].replace('省', '')
-    ProfName = Pinyin().get_pinyin(ProfName, '')
+    ProfName = ''.join(lazy_pinyin(ProfName))
 
     # Create a rectangle mask using center coordinates and radius
     rectangle = CreateRectangle(Center, Radius * 2, Radius * 2)
@@ -362,6 +369,8 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['wgs84lon'], df['wgs84lat']))
         elif 'WGS84_经度' in df.columns and 'WGS84_纬度' in df.columns:
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['WGS84_经度'], df['WGS84_纬度']))
+        elif '经度' in df.columns and '纬度' in df.columns:
+            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['经度'], df['纬度']))
         else:
             raise Exception(f"Columns 'wgs84lon' and 'wgs84lat' or 'WGS84_经度' and 'WGS84_纬度' not found in {POI_file}.")
         retained_keys = ['大类', '中类', '小类', 'geometry']
@@ -389,18 +398,32 @@ def PredictBldStructuralType(Bld_gdf, UsePOI = False):
     Footprint.set_crs(epsg=4326, inplace=True)
     utm_crs = Footprint.estimate_utm_crs()
     Footprint = Footprint.to_crs(utm_crs)
-    Footprint = Footprint.apply(lambda x: list(x.exterior.coords))
+    
+    # 修复处理MultiPolygon的问题
+    def get_coords(geom):
+        from shapely.geometry import MultiPolygon, Polygon
+        if isinstance(geom, Polygon):
+            return list(geom.exterior.coords)
+        elif isinstance(geom, MultiPolygon):
+            # 对于MultiPolygon，我们取面积最大的Polygon的坐标
+            largest_polygon = max(geom.geoms, key=lambda p: p.area)
+            return list(largest_polygon.exterior.coords)
+        else:
+            # 其他几何类型的处理
+            return []
+    
+    Footprint = Footprint.apply(get_coords)
     Footprint = Footprint.tolist()
+    
     # POI
     if UsePOI:
         POI = Bld_gdf['POI'].values.tolist()
     # predict building structure type
-    with open(TRAINED_RF_BLDSTRUCT, "rb") as f:
-        clf = load(f)
-        if UsePOI:
-            Y_struct = clf.predict(Area, Floor, Footprint, POI)
-        else:
-            Y_struct = clf.predict(Area, Floor, Footprint)
+    clf = load(TRAINED_RF_BLDSTRUCT)
+    if UsePOI:
+        Y_struct = clf.predict(Area, Floor, Footprint, POI)
+    else:
+        Y_struct = clf.predict(Area, Floor, Footprint)
     Bld_gdf['structure'] = Y_struct
 
     return Bld_gdf
