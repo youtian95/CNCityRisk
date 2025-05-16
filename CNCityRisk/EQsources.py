@@ -1,5 +1,6 @@
 
 from . import Utilities
+from . import plot_city
 
 from pathlib import Path
 from openquake.commands import engine, reset, purge
@@ -37,6 +38,9 @@ def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opa
     # add the rupture points
     for i in range(len(rup_df)):
         Create_a_Rupture_Polygon(m, rup_df.iloc[i])
+
+    # add city bounds
+    plot_city.Add_CityBoundary_to_FoliumMap(m, CityName)
 
     # adjust the map
     m.fit_bounds(m.get_bounds())

@@ -23,7 +23,7 @@ import cProfile
 import pstats
 
 # The target cities 
-CityName = '重庆'
+CityName = '合肥'
 
 if __name__ == '__main__':
 
@@ -61,11 +61,11 @@ if __name__ == '__main__':
         BldPSPA_ReprBld.LossAssess()
 
     # Earthquake events generation
-    if 1:
+    if 0:
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 0:
+    if 1:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
