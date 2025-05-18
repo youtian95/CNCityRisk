@@ -16,6 +16,7 @@ import sys
 import BldStructPred
 import numpy as np
 from packaging import version
+import re
 
 
 # API key
@@ -862,4 +863,28 @@ def load_h5py_group_to_memory(group):
                 data[name] = item[:] 
     return data
 
-
+def minify_html(html_path):
+    """
+    压缩HTML文件内容，移除不必要的空白和注释
+    
+    Parameters:
+        html_path: HTML文件路径
+    """
+    try:
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 移除注释 (<!-- ... -->)
+        content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+        # 移除多余空白
+        content = re.sub(r'\s+', ' ', content)
+        # 移除行标签间的空白
+        content = re.sub(r'>\s+<', '><', content)
+        
+        with open(html_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        return True
+    except Exception as e:
+        print(f"压缩HTML时出错: {e}")
+        return False

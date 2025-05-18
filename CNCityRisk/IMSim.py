@@ -547,6 +547,11 @@ def Add_IMfield_to_FoliumMap(m: folium.Map, lonVec: np.array, latVec: np.array, 
     # Add a legend of the contour colors to the map
     colormap = cm.LinearColormap([c_white, c_red], vmin=min(levels), vmax=max(levels))
     # colormap = cm.linear.viridis.scale(min(levels), max(levels))
+    # if cation T=0.01, set caption to PGA
+    if 'T=' in caption:
+        period = float(caption.split('T=')[1].split('seconds')[0].strip())
+        if period <= 0.01:
+            caption = 'PGA (g)'
     colormap.caption = caption
     m.add_child(colormap)
 

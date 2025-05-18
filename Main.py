@@ -23,7 +23,7 @@ import cProfile
 import pstats
 
 # The target cities 
-CityName = '合肥'
+CityName = '武汉'
 
 if __name__ == '__main__':
 
@@ -65,7 +65,7 @@ if __name__ == '__main__':
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 1:
+    if 0:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
@@ -82,7 +82,7 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
     # Figures: plot regional seismic loss
-    if 0:
-        RegionalLossSim.create_maps_city_regional_losses(CityName, DistrictName = '包河区', LossType='DS_Struct', iSim = 0)
+    if 1:
+        RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
 
     

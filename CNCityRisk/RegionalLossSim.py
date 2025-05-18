@@ -4,6 +4,7 @@ from . import BldPSPA_ReprBld
 from . import EQsources
 from . import IMSim
 from . import plot_city
+from .Utilities import minify_html
 
 from pathlib import Path
 import pandas as pd
@@ -157,9 +158,10 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
                     return None
 
     print(f'Reading building properties for plotting regional losses...')
-    Bld_gdf = Utilities.get_CityBldData(CityName)
     if DistrictName is not None:
-        Bld_gdf = Bld_gdf[Bld_gdf['DistrictName'] == DistrictName]
+        Bld_gdf = Utilities.get_DistrictBldData(CityName, DistrictName=DistrictName)
+    else:
+        Bld_gdf = Utilities.get_CityBldData(CityName)
 
     ResultsDir = Path(ResultsDir).resolve()
     
@@ -200,24 +202,30 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
 
     # rupture polygon
     rupture = rup_df.loc[rup_df['rup_id'] == rupid].iloc[0]
-    EQsources.Create_a_Rupture_Polygon(m, rupture)
-
-    # plot the city boundary and district boundary
+    EQsources.Create_a_Rupture_Polygon(m, rupture)    # plot the city boundary and district boundary
     plot_city.Add_CityBoundary_to_FoliumMap(m, CityName)
     if DistrictName is not None:
         plot_city.Add_DistrictBoundary_to_FoliumMap(m, CityName, DistrictName)
-
+    
     m.save(filepath)
+    
+    # 压缩HTML内容，减小文件体积
+    print(f'压缩HTML文件: {filepath.name}')
+    minify_html(filepath)
 
     if ShowInBrowser:
         webbrowser.open(filepath)
 
+    # 使用更高压缩等级压缩地图文件
+    # 压缩设置：LZMA2算法，最高压缩级别9
+    filters = [{'id': py7zr.FILTER_LZMA2, 'preset': 9}]
+    
     # Compress the map file into MAP_ZIP
     if not MAP_ZIP.exists():
-        with py7zr.SevenZipFile(MAP_ZIP, 'w') as archive:
+        with py7zr.SevenZipFile(MAP_ZIP, 'w', filters=filters) as archive:
             archive.write(filepath, arcname=filepath.name)
     else:
-        with py7zr.SevenZipFile(MAP_ZIP, 'a') as archive:
+        with py7zr.SevenZipFile(MAP_ZIP, 'a', filters=filters) as archive:
             archive.write(filepath, arcname=filepath.name)
 
     # delete the html file
@@ -471,14 +479,12 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
         ax.scatter([], [], color='r', label='The displayed simulation')
         ax.legend()
 
-    fig.savefig(SavePath)
-
-    # Compress the map file into MAP_ZIP
+    fig.savefig(SavePath)    # Compress the map file into MAP_ZIP
     if not MAP_ZIP.exists():
-        with py7zr.SevenZipFile(MAP_ZIP, 'w') as archive:
+        with py7zr.SevenZipFile(MAP_ZIP, 'w', filters=[{'id': py7zr.FILTER_LZMA2, 'preset': 9}]) as archive:
             archive.write(SavePath, arcname=SavePath.name)
     else:
-        with py7zr.SevenZipFile(MAP_ZIP, 'a') as archive:
+        with py7zr.SevenZipFile(MAP_ZIP, 'a', filters=[{'id': py7zr.FILTER_LZMA2, 'preset': 9}]) as archive:
             archive.write(SavePath, arcname=SavePath.name)
 
     # delete the html file
@@ -488,4 +494,56 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
         plt.show()
     else:
         plt.close('all')
+
+def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESULTDIR, LossType='DS_Struct', i_rup=0, iSim=0):
+    """生成区域损失的GeoJSON数据"""
+    """
+    Parameters:
+        CityName (str): 城市名称
+        DistrictName (str): 区域名称
+        ResultsDir (str): 结果目录
+        LossType (str): 损失类型
+        i_rup (int): 震源索引
+        iSim (int): 模拟索引, 从0开始
+    Returns:
+        geojson_data (str): GeoJSON数据
+    """
+    # 读取建筑数据
+    if DistrictName is not None:
+        Bld_gdf = Utilities.get_DistrictBldData(CityName, DistrictName=DistrictName)
+    else:
+        Bld_gdf = Utilities.get_CityBldData(CityName)
+    
+    # 获取震源和模拟索引
+    rupid_2_iSim = pd.read_csv(IMSim.IM_SIM_DIR / CityName / IMSim.RUPID_2_ISIM_FILENAME, index_col=0, header=0, dtype={0: str})
+    rupid_2_iSim['iSim'] = rupid_2_iSim['iSim'].apply(
+        lambda x: list(map(int, x.strip('[]').split())) if isinstance(x, str) else x)
+    rupid_2_iSim = rupid_2_iSim.to_dict(orient='index')
+    
+    # 读取震源信息
+    rup_df = EQsources.ReadCityRuptures(CityName)
+    rupid = rup_df.iloc[i_rup]['rup_id']
+    iSim_list = rupid_2_iSim[rupid]['iSim']
+    iSim_allRup = iSim_list[iSim]
+    
+    # 创建结果GeoDataFrame
+    result_gdf = Bld_gdf.copy()
+    
+    # 添加损失数据
+    with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+        loss_values = []
+        for i in result_gdf.index:
+            loss_sim = f[f'BldID_{i}'][:]
+            loss_values.append(int(loss_sim[iSim_allRup]))
+    
+    result_gdf['loss_value'] = loss_values
+    
+    # 只保留必要的列
+    keep_columns = ['geometry', 'loss_value', 'structure', 'story', 'DistrictName']
+    result_gdf = result_gdf[keep_columns]
+    
+    # 转换为GeoJSON
+    geojson_data = result_gdf.to_json()
+    
+    return geojson_data
 
