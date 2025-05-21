@@ -112,18 +112,29 @@ def create_maps_city_regional_losses(CityName: str, ResultsDir: str = RESULTDIR,
     DistrictNames = Utilities.get_DistrictsOfCity_names(CityName)
 
     rup_df = EQsources.ReadCityRuptures(CityName)
+    
+    # 提前加载HDF5文件，避免重复加载
+    ResultsDir_path = Path(ResultsDir).resolve()
+    print(f'提前加载HDF5文件到内存，避免重复加载...')
+    with h5py.File(ResultsDir_path / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+        loss_data_in_memory = Utilities.load_h5py_group_to_memory(f)
+        
+        # iterate over the district names
+        for DistrictName in DistrictNames:
+            print(f'Creating maps for {CityName}, {DistrictName}...')
+            # iterate over the ruptures
+            for i_rup in range(len(rup_df)):
+                plot_regional_losses(CityName, DistrictName=DistrictName, ResultsDir=ResultsDir, LossType=LossType, i_rup=i_rup, iSim=iSim, BaseMap=BaseMap, savedir=savedir, ShowInBrowser=False, Overwrite=Overwrite, LossDataInMemory=loss_data_in_memory)  # 传递内存中的数据
 
-    # iterate over the district names
-    for DistrictName in DistrictNames:
-        print(f'Creating maps for {CityName}, {DistrictName}...')
-        # iterate over the ruptures
+    # 对于CDF图，我们只需要统计数据，也可以使用相同的内存数据
+    with h5py.File(ResultsDir_path / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+        loss_data_in_memory = Utilities.load_h5py_group_to_memory(f)
         for i_rup in range(len(rup_df)):
-            plot_regional_losses(CityName, DistrictName=DistrictName, ResultsDir=ResultsDir, LossType=LossType, i_rup=i_rup, iSim=iSim, BaseMap=BaseMap, savedir=savedir, ShowInBrowser=False, Overwrite=Overwrite)
+            plot_CDF_regional_losses(CityName, ResultsDir=ResultsDir, LossType=LossType, 
+                i_rup=i_rup, iSim=iSim, PlotNow=False, Overwrite=Overwrite,
+                LossDataInMemory=loss_data_in_memory)  # 传递内存中的数据
 
-    for i_rup in range(len(rup_df)):
-        plot_CDF_regional_losses(CityName, LossType=LossType, i_rup = i_rup, iSim = iSim, PlotNow=False, Overwrite = Overwrite)
-
-def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = 0, BaseMap: str = 'Cartodb Positron', savedir = None, ShowInBrowser: bool = True, Overwrite: bool = False) -> folium.Map:
+def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = 0, BaseMap: str = 'Cartodb Positron', savedir = None, ShowInBrowser: bool = True, Overwrite: bool = False, LossDataInMemory = None) -> folium.Map:
     """
     Plot the regional seismic losses. Each row index in Bld_gdf must correspond to each building ID in the files in ResultsDir.
     
@@ -137,6 +148,7 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
         iSim (int): Index of the simulation for a specific rupture. Default is 0.
         BaseMap (str): Type of basemap. Options are 'Cartodb Positron', 'Amap', 'OpenStreetMap.HOT'. Default is 'Cartodb Positron'.
         savedir (str): Directory to save the output files.
+        LossDataInMemory: 预加载的损失数据，如果提供则直接使用，否则从文件加载
     
     Returns:
         folium.Map: Folium map object.
@@ -190,12 +202,17 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, ResultsDir: st
 
     # get the iSim index in all ruptures
     iSim_list = rupid_2_iSim[rupid]['iSim']
-    iSim_allRup = iSim_list[iSim]
-    
-    # plot the building loss polygons
+    iSim_allRup = iSim_list[iSim]    # plot the building loss polygons
     print('Adding building polygons to the map...')
-    with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
-        Add_BldLoss_Polygon_to_FoliumMap(m, Bld_gdf, f, LossType, iSim_allRup)
+    if LossDataInMemory is not None:
+        # 使用预加载的数据
+        Add_BldLoss_Polygon_to_FoliumMap(m, Bld_gdf, LossDataInMemory, LossType, iSim_allRup)
+    else:
+        # 如果没有提供预加载数据，则从文件加载
+        with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+            # 先将数据加载到内存一次，避免在函数中重复加载
+            f_in_memory = Utilities.load_h5py_group_to_memory(f)
+            Add_BldLoss_Polygon_to_FoliumMap(m, Bld_gdf, f_in_memory, LossType, iSim_allRup)
 
     # add the IM field to map
     IMSim.Add_City_IMfield_to_FoliumMap(m, CityName, i_rup, iTplot = 1, iSim = iSim)
@@ -245,8 +262,8 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
         iSim (int): Index of the simulation in the HDF5 file.
     """
 
+    # 直接使用传入的数据，不再重复加载
     f = Lossh5pyFile
-    f = Utilities.load_h5py_group_to_memory(f)
     
     # plot each building
     with tqdm(total=len(Bld_gdf), desc="Loading regional losses...") as pbar:
@@ -332,7 +349,7 @@ def Add_BldLoss_Polygon_to_FoliumMap(m: folium.Map, Bld_gdf: gpd.GeoDataFrame, L
 
     plt.close('all')
 
-def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None):
+def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, LossDataInMemory = None):
     '''
     Get the statistics of the regional seismic losses, given an earthquake event.
 
@@ -342,6 +359,7 @@ def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, L
         LossType (str): Type of loss to plot. Default is 'DS_Struct' (structural damage state).
         i_rup (int): Index of the rupture. Default is 0.
         iSim (int): Index of the simulation for a specific rupture. Default is None.
+        LossDataInMemory: 预加载的损失数据，如果提供则直接使用，否则从文件加载
 
     Returns:
         total_loss_sim (np.ndarray): Cumulative distribution function of the regional seismic losses. 
@@ -391,24 +409,30 @@ def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, L
         total_loss_iSim = None
 
     # calculate the numbers of buildings in each damage state or the total repair cost
-    with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
-        f = Utilities.load_h5py_group_to_memory(f)
-        for i in range(N_bld):
-            loss_sim = f[f'BldID_{i}'][:]
-            # i-th simulation for the specific rupture
-            if iSim is not None:
-                loss = loss_sim[iSim_allRup]
-                if LossType in BldPSPA_ReprBld.LossTypes1:
-                    total_loss_iSim[loss] += 1
-                elif LossType in BldPSPA_ReprBld.LossTypes2:
-                    total_loss_iSim[0] += loss
-            # total losses for each simulation
-            for j in range(N_sim):
-                loss = loss_sim[iSim_list[j]]
-                if LossType in BldPSPA_ReprBld.LossTypes1:
-                    total_loss_sim[loss, j] += 1
-                elif LossType in BldPSPA_ReprBld.LossTypes2:
-                    total_loss_sim[0, j] += loss
+    if LossDataInMemory is not None:
+        # 使用预加载的数据
+        f_in_memory = LossDataInMemory
+    else:
+        # 如果没有提供预加载数据，则从文件加载
+        with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+            f_in_memory = Utilities.load_h5py_group_to_memory(f)
+            
+    for i in range(N_bld):
+        loss_sim = f_in_memory[f'BldID_{i}'][:]
+        # i-th simulation for the specific rupture
+        if iSim is not None:
+            loss = loss_sim[iSim_allRup]
+            if LossType in BldPSPA_ReprBld.LossTypes1:
+                total_loss_iSim[loss] += 1
+            elif LossType in BldPSPA_ReprBld.LossTypes2:
+                total_loss_iSim[0] += loss
+        # total losses for each simulation
+        for j in range(N_sim):
+            loss = loss_sim[iSim_list[j]]
+            if LossType in BldPSPA_ReprBld.LossTypes1:
+                total_loss_sim[loss, j] += 1
+            elif LossType in BldPSPA_ReprBld.LossTypes2:
+                total_loss_sim[0, j] += loss
     
     # check sum(total_loss_iSim) = N
     if LossType in BldPSPA_ReprBld.LossTypes1:
@@ -426,7 +450,7 @@ def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, L
             
     return total_loss_sim, total_loss_iSim, percentiles_iSim
 
-def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, SavePath: Path = None, PlotNow: bool = True, Overwrite: bool = False):
+def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, SavePath: Path = None, PlotNow: bool = True, Overwrite: bool = False, LossDataInMemory = None):
     '''
     plot the cumulative distribution function of total regional seismic losses.
     '''
@@ -440,11 +464,11 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
             existing_files = archive.getnames()
             if SavePath.name in existing_files:
                 if not Overwrite:
-                    print(f'{SavePath.name} already exists in the archive. Skipping...')
+                    print(f'{SavePath.name} already exists in the archive. Skipping...')                    
                     return None
 
     
-    total_loss_sim, total_loss_iSim, percentiles_iSim = get_statistics_regional_losses(CityName, ResultsDir, LossType, i_rup, iSim)
+    total_loss_sim, total_loss_iSim, percentiles_iSim = get_statistics_regional_losses(CityName, ResultsDir, LossType, i_rup, iSim, LossDataInMemory)
 
     # print the percentiles
     print(f'Percentiles of the iSim-th simulation: {percentiles_iSim}')
@@ -531,9 +555,11 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
     
     # 添加损失数据
     with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+        # 先将数据加载到内存一次，避免在循环中重复访问
+        f_in_memory = Utilities.load_h5py_group_to_memory(f)
         loss_values = []
         for i in result_gdf.index:
-            loss_sim = f[f'BldID_{i}'][:]
+            loss_sim = f_in_memory[f'BldID_{i}'][:]
             loss_values.append(int(loss_sim[iSim_allRup]))
     
     result_gdf['loss_value'] = loss_values

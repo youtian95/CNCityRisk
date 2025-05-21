@@ -14,6 +14,7 @@ from CNCityRisk import RegionalLossSim
 from CNCityRisk import BldPSPA_ReprBld
 from CNCityRisk import Utilities
 from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
+from CNCityRisk.Logger import get_logger
 
 from MDOFModel.IDA import IDA
 from pathlib import Path
@@ -21,18 +22,22 @@ import pandas as pd
 import numpy as np
 import cProfile
 import pstats
+import time
+
+# Get main program logger
+logger = get_logger('Main')
 
 # The target cities 
-CityName = '武汉'
+CityName = '重庆'
 
-if __name__ == '__main__':
+if __name__ == '__main__':    
 
-    # Prepare building data, including structural type, occupancy type...
+    # Prepare building data, including structural type, occupancy type...    
     if 0:
         PrepareBldData.prepare_building_data(CityName, MinBldArea=50)
-    if 0:
+    if 0:        
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
-    if 0:
+    if 1:
         # classify per structural type
         ClassifyBld.BldClassify(CityName)
     if 0:
@@ -82,7 +87,7 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
     # Figures: plot regional seismic loss
-    if 1:
+    if 0:
         RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
 
     

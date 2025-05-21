@@ -865,20 +865,20 @@ def load_h5py_group_to_memory(group):
 
 def minify_html(html_path):
     """
-    压缩HTML文件内容，移除不必要的空白和注释
+    Compress HTML file content, remove unnecessary whitespace and comments
     
     Parameters:
-        html_path: HTML文件路径
+        html_path: HTML file path
     """
     try:
         with open(html_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 移除注释 (<!-- ... -->)
+        # Remove comments (<!-- ... -->)
         content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
-        # 移除多余空白
+        # Remove excess whitespace
         content = re.sub(r'\s+', ' ', content)
-        # 移除行标签间的空白
+        # Remove whitespace between tags
         content = re.sub(r'>\s+<', '><', content)
         
         with open(html_path, 'w', encoding='utf-8') as f:
@@ -886,5 +886,5 @@ def minify_html(html_path):
         
         return True
     except Exception as e:
-        print(f"压缩HTML时出错: {e}")
+        print(f"Error compressing HTML: {e}")
         return False

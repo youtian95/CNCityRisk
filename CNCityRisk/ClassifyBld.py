@@ -2,9 +2,14 @@ import pandas as pd
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
+import time
 
 from BldCluster import BldCluster
 from . import Utilities
+from .Logger import get_logger
+
+# Get module logger
+logger = get_logger('ClassifyBld')
 
 # parameters
 STRUCT_CLASS_LABELS = ['story','area','structure','SeismicDesignLevel','EQGroup','SiteClass']
@@ -24,17 +29,20 @@ def BldClassify(CityName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list 
     Parameters:
         CityName (str). Name of the city
         SaveDir (Path). Directory to save the representative buildings
-        IgnoredLabels (list). Labels that are ignored during classification
+        TargetLabels (list). Labels that are used for classification
         IncrLabels (dict). Labels that are used to group buildings together
         StartFromScratch (bool). If True, the classification will be started from scratch. Otherwise, the classification will be based on the existing representative buildings.
     Returns:
         Bld2ReprBld (dict). Building to representative building mapping
         ReprBld (pd.DataFrame). Representative building properties. 
-    '''
-    print(f'{CityName}: Classify buildings...')
-
-    # create a directory to save the representative buildings
-    SaveDir.mkdir(parents=True, exist_ok=True)
+    '''    
+    logger.info(f'Starting to classify buildings for {CityName}...')
+    start_time = time.time()
+    
+    # create SaveDir if not exists
+    if not SaveDir.exists():
+        logger.debug(f'Creating directory: {SaveDir}')
+        SaveDir.mkdir(parents=True, exist_ok=True)
 
     # existing district file names
     CityBldDir = Utilities.BLD_DATA_PATH / CityName
@@ -53,7 +61,10 @@ def BldClassify(CityName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list 
 
     # classify district by district
     for district in tqdm(DistrictNames):
-        BldClassify_District(CityName, district, SaveDir, TargetLabels, IncrLabels, ReprColName)
+        BldClassify_District(CityName, district, SaveDir, TargetLabels, IncrLabels, ReprColName)    
+    
+    end_time = time.time()
+    logger.info(f'Building classification for {CityName} completed, total time: {end_time-start_time:.2f} seconds')
 
 def _CleanIntermidiateFiles():
     '''
@@ -90,7 +101,9 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     # use python library, BldCluster, to classify buildings
     BldDirtFile = Utilities.BLD_DATA_PATH / CityName / f'{DistrictName}.csv'
     obj = BldCluster.BldCluster(BldDirtFile)
-    obj.ClassifyBld(IgnoredLabels=None, TargetLabels=TargetLabels, **IncrLabels)
+    all_columns = Bld_gdf.columns.tolist()
+    IgnoredLabels = [col for col in all_columns if col not in TargetLabels]
+    obj.ClassifyBld(IgnoredLabels=IgnoredLabels, **IncrLabels)
     Bld2ReprBld = obj.Bld2ReprBld
     ReprBld = obj.ReprBld
 
