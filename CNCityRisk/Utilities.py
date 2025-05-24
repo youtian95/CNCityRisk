@@ -529,7 +529,7 @@ def ReadDistrictBldGDF(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
         CityName (str): Name of the city.
         DistrictName (str): Name of the district.
     Returns:
-        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the district. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
+        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the district. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel, EQGroup, SiteClass
     '''
     try:
         Bld_gdf = gpd.read_file(BLD_DATA_PATH / CityName / f'{DistrictName}.csv', GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO", encoding='utf-8-sig')
@@ -547,6 +547,14 @@ def ReadDistrictBldGDF(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
             Bld_gdf['POI_Nearest'] = Bld_gdf['POI_Nearest'].apply(eval)
         if 'ReprBldID' in Bld_gdf.columns:
             Bld_gdf['ReprBldID'] = Bld_gdf['ReprBldID'].astype(int)
+        if 'SeismicDesignLevel' in Bld_gdf.columns:
+            Bld_gdf['SeismicDesignLevel'] = Bld_gdf['SeismicDesignLevel'].astype(str)
+        if 'designlevel' in Bld_gdf.columns:
+            Bld_gdf['designlevel'] = Bld_gdf['designlevel'].astype(str)
+        if 'EQGroup' in Bld_gdf.columns:
+            Bld_gdf['EQGroup'] = Bld_gdf['EQGroup'].astype(str)
+        if 'SiteClass' in Bld_gdf.columns:
+            Bld_gdf['SiteClass'] = Bld_gdf['SiteClass'].astype(str)
         Bld_gdf['DistrictName'] = DistrictName
         return Bld_gdf
     except:

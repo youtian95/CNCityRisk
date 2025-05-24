@@ -37,10 +37,10 @@ if __name__ == '__main__':
         PrepareBldData.prepare_building_data(CityName, MinBldArea=50)
     if 0:        
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
-    if 1:
+    if 0:
         # classify per structural type
         ClassifyBld.BldClassify(CityName)
-    if 0:
+    if 1:
         # classify per PSPA
         ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
 

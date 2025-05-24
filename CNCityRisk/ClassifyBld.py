@@ -75,7 +75,7 @@ def _CleanIntermidiateFiles():
     if _Bld2ReprBldFile.exists():
         _Bld2ReprBldFile.unlink() 
 
-def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list = STRUCT_CLASS_LABELS, IncrLabels: dict[str,float] = INCR_LABELS, ReprColName: str = 'ReprBldID'):
+def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list = STRUCT_CLASS_LABELS, IncrLabels: dict[str,float] = INCR_LABELS, ReprColName: str = 'ReprBldID', overwrite: bool = True):
     '''
     Classify buildings based on their properties, including structural type, occupancy type, design level, etc. For buildings that have been classified, a representative building is assigned to the BldDirtFile.
     Parameters:
@@ -85,6 +85,7 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
         TargetLabels (list). Labels that are used for classification
         IncrLabels (dict). Labels that are used to group buildings together
         ReprColName (str). Name of the column that stores the representative building ID
+        overwrite (bool). If True, the representative buildings will be overwritten. 
     Returns:
         Bld2ReprBld (dict). Building to representative building mapping
         ReprBld (pd.DataFrame). Representative building properties. 
@@ -92,8 +93,9 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     
     # if the representative buildings have been generated, skip the classification
     Bld_gdf = Utilities.ReadDistrictBldGDF(CityName, DistrictName)
-    if ReprColName in Bld_gdf.columns:
-        return None
+    if not overwrite:
+        if ReprColName in Bld_gdf.columns:
+            return None
 
     # create a directory to save the representative buildings
     SaveDir.mkdir(parents=True, exist_ok=True)
@@ -107,16 +109,28 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     Bld2ReprBld = obj.Bld2ReprBld
     ReprBld = obj.ReprBld
 
+    # Use the function to align datatypes
+    ReprBld = _align_dataframe_dtypes(
+        source_df=ReprBld,
+        target_df=Bld_gdf
+    )
+
     # remove the intermediate files
     _CleanIntermidiateFiles()
 
     # merge the new generated representative buildings with the existing representative buildings
     if (SaveDir/REPR_BLD_FILE).exists():
         # read the existing representative buildings
-        ReprBld_old = pd.read_csv(SaveDir / REPR_BLD_FILE, index_col=0)
+        # ReprBld_old = pd.read_csv(SaveDir / REPR_BLD_FILE, index_col=0)
+        ReprBld_old = ReadReprBld(ReprDir=SaveDir)
         headers = ReprBld_old.columns.to_list()
         ReprBld_old['id_old'] = ReprBld_old.index
         ReprBld['id_new'] = ReprBld.index
+        # round the float columns to 0 decimal places
+        for col in headers:
+            if ReprBld_old[col].dtype == 'float64':
+                ReprBld_old[col] = ReprBld_old[col].round(0)
+                ReprBld[col] = ReprBld[col].round(0)
         # find the new representative buildings that are not in the existing representative buildings
         df_temp = ReprBld_old.merge(ReprBld, on=headers, how='right')
         row_not_in_old = df_temp[df_temp['id_old'].isna()]
@@ -163,7 +177,7 @@ def ReadReprBldStructPara(property: str, ReprDir: Path = REPR_BLD_DIR) -> dict:
         repr_blds_properties (dict): The properties of representative buildings.
     '''
     # basic properties of representative buildings
-    ReprBld = pd.read_csv(ReprDir / REPR_BLD_FILE, index_col=0)
+    ReprBld = ReadReprBld(ReprDir = ReprDir)
     
     # Read structural parameters of representative buildings
     repr_blds_properties = {}
@@ -178,3 +192,69 @@ def ReadReprBldStructPara(property: str, ReprDir: Path = REPR_BLD_DIR) -> dict:
     return repr_blds_properties
 
     
+# modify the column types ReprBld to be consistent with Bld_gdf
+def _align_dataframe_dtypes(source_df: pd.DataFrame, target_df: pd.DataFrame, type_mapping=None, logger=logger):
+    """
+    Align the data types of columns in source_df to match those in target_df.
+    
+    Parameters:
+        source_df (pd.DataFrame): DataFrame whose data types need to be modified
+        target_df (pd.DataFrame): DataFrame with reference data types
+        type_mapping (dict): Dictionary of column names and their desired types
+        logger: Logger to record warnings
+    
+    Returns:
+        pd.DataFrame: DataFrame with aligned data types
+    """
+    # Make a copy to avoid modifying the original
+    result_df = source_df.copy()
+    
+    # Get dtypes from target_df for columns that exist in both dataframes
+    common_columns = set(result_df.columns) & set(target_df.columns)
+    for col in common_columns:
+        try:
+            # 方法1: 使用 pd.api.types.infer_dtype 推断实际类型
+            if str(target_df[col].dtype) == 'object':
+                inferred_type = pd.api.types.infer_dtype(target_df[col], skipna=True)
+                if inferred_type == 'string':
+                    dtype = 'str'
+                elif inferred_type == 'integer':
+                    dtype = 'int64'
+                elif inferred_type == 'floating':
+                    dtype = 'float64'
+                elif inferred_type == 'boolean':
+                    dtype = 'bool'
+                else:
+                    dtype = target_df[col].dtype
+            else:
+                dtype = target_df[col].dtype
+            
+            # 方法2: 或者尝试使用 pd.to_numeric 检测数值类型
+            # if target_df[col].dtype == 'object':
+            #     # 尝试转换为数值类型
+            #     numeric_series = pd.to_numeric(target_df[col], errors='coerce')
+            #     if not numeric_series.isna().all():
+            #         # 如果能转换为数值，检查是否为整数
+            #         if numeric_series.dropna().apply(lambda x: x.is_integer()).all():
+            #             dtype = 'int64'
+            #         else:
+            #             dtype = 'float64'
+            #     else:
+            #         dtype = 'str'  # 保持为字符串类型
+            # else:
+            #     dtype = target_df[col].dtype
+            
+            result_df[col] = result_df[col].astype(dtype)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert column '{col}' to dtype {dtype}")
+
+    # Apply specific type mappings if provided
+    if type_mapping:
+        for col, dtype in type_mapping.items():
+            if col in result_df.columns:
+                try:
+                    result_df[col] = result_df[col].astype(dtype)
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not convert column '{col}' to {dtype}")
+    
+    return result_df
