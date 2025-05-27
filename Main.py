@@ -14,6 +14,8 @@ from CNCityRisk import RegionalLossSim
 from CNCityRisk import BldPSPA_ReprBld
 from CNCityRisk import Utilities
 from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
+from CNCityRisk.Logger import init_root_logger
+init_root_logger()
 from CNCityRisk.Logger import get_logger
 
 from MDOFModel.IDA import IDA
@@ -40,7 +42,7 @@ if __name__ == '__main__':
     if 0:
         # classify per structural type
         ClassifyBld.BldClassify(CityName)
-    if 1:
+    if 0:
         # classify per PSPA
         ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
 
@@ -51,7 +53,7 @@ if __name__ == '__main__':
         plot_city.plot_histogram_bld(CityName = CityName, DistrictName='包河区', prop = 'story')
 
     # IDA analysis for individual representative buildings
-    if 0:
+    if 1:
         IDA_ReprBld.IDA_analysis(NumPool=4)
 
     # Figures: plot IDA results for one buiding

@@ -11,9 +11,13 @@ from pathlib import Path
 import time
 import sys
 from datetime import datetime
+import multiprocessing
 
 # Log storage path
 LOG_DIR = Path(__file__).parent / 'logs'
+
+# 全局标志，避免重复初始化
+_logger_initialized = False
 
 def setup_logger(name=None, log_file=None, level=logging.INFO, console_output=True):
     """
@@ -77,12 +81,23 @@ def get_logger(module_name=None):
 # Initialize root logger
 def init_root_logger(log_file=None, level=logging.INFO):
     """
-    Initialize root logger
+    Initialize root logger - only in main process
     
     Parameters:
         log_file (str): Log file name
         level (int): Log level
     """
+    global _logger_initialized
+    
+    # 检查是否为主进程
+    if multiprocessing.current_process().name != 'MainProcess':
+        return
+        
+    if _logger_initialized:
+        return
+        
+    _logger_initialized = True
+    
     if log_file is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = f"CNCityRisk_{timestamp}.log"

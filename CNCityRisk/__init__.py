@@ -6,6 +6,3 @@ Date: 2025-05-21
 """
 
 from . import Logger
-
-# 初始化日志记录系统
-Logger.init_root_logger()
