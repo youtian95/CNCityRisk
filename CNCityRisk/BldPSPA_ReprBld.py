@@ -4,6 +4,7 @@ from . import ClassifyBld
 from MDOFModel import Tool_LossAssess
 from . import IDA_ReprBld
 from . import Utilities
+from . import Logger
 
 from pathlib import Path
 import pandas as pd
@@ -12,6 +13,9 @@ from tqdm import tqdm
 from scipy.stats import ecdf
 import h5py
 import numpy as np
+
+# Initialize logger
+logger = Logger.get_logger(__name__)
 
 # Parameters
 ReprBldDir = ClassifyBld.REPR_BLD_DIR
@@ -48,6 +52,8 @@ def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Pat
 
     ID_repr_PSPA = int(row['ReprPSPAID'])
     ID_repr_IDA = int(row['ReprBldID'])
+    logger.debug(f"Starting loss simulation for ReprPSPAID: {ID_repr_PSPA}, ReprBldID: {ID_repr_IDA}")
+    
     NumofStories = int(row['story'])
     FloorArea = float(row['area'])
     StructuralType = row['structure']
@@ -57,46 +63,65 @@ def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Pat
     OccupancyClass = row['occupancy'].strip() if pd.notna(row['occupancy']) and row['occupancy'].strip() and row['occupancy'].strip().lower() != 'unknown' else 'RES3'
 
     IDA_result_file = IDA_result_dir / f'IDA_result_ReprBldID_{ID_repr_IDA}.csv'
+    if not IDA_result_file.exists():
+        logger.error(f"IDA result file not found: {IDA_result_file}")
+        raise FileNotFoundError(f"IDA result file not found: {IDA_result_file}")
+    
     IDA_result = pd.read_csv(IDA_result_file)
     # read IM list
     unique_IMs = IDA_result['IM'].unique()
     IM_list = sorted(unique_IMs)
+    logger.debug(f"Processing {len(IM_list)} IM values for building {ID_repr_PSPA}")
 
     N_Sim = [N_Sim] * len(IM_list)
 
     # Simulate losses for the building
-    SimEDP, BldLoss = Tool_LossAssess.Simulate_losses_given_IM_basedon_IDA(
-        IDA_result_file, IM_list, N_Sim, BetaM,
-        OutputDir, NumofStories, FloorArea, StructuralType, DesignInfo, OccupancyClass
-    )
+    try:
+        SimEDP, BldLoss = Tool_LossAssess.Simulate_losses_given_IM_basedon_IDA(
+            IDA_result_file, IM_list, N_Sim, BetaM,
+            OutputDir, NumofStories, FloorArea, StructuralType, DesignInfo, OccupancyClass
+        )
+        logger.debug(f"Loss simulation completed for building {ID_repr_PSPA}")
+    except Exception as e:
+        logger.error(f"Error in loss simulation for building {ID_repr_PSPA}: {str(e)}")
+        raise
 
     # save the results to the hdf5 file
-    grp = h5pyFile.create_group(f'ReprBldID_{ID_repr_PSPA}')
-    IM_list = sorted(BldLoss['IM'].unique())
-    i_IM = -1
-    for im in IM_list:
-        i_IM += 1
-        grp_im = grp.create_group(f'IM{i_IM}')
-        grp_im.attrs['IM'] = im
-        for losstype in ['DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime']:
-            if losstype in BldLoss.columns:
-                grp_im_loss = grp_im.create_group(losstype)
-                BldLoss_IM: pd.Series = BldLoss.loc[BldLoss['IM'] == im, losstype]
-                if losstype.startswith('DS'):
-                    # calculate probability of each damage state
-                    DS_prob = BldLoss_IM.value_counts(normalize=True)
-                    for DS, prob in DS_prob.items():
-                        grp_im_loss.create_dataset(DS, data=prob)
-                else:
-                    # save CDF of the loss
-                    quantiles = np.linspace(0, 1, 101)
-                    ecdf_values = np.quantile(BldLoss_IM, quantiles)
-                    grp_im_loss.create_dataset('quantiles', data=ecdf_values)
+    try:
+        grp = h5pyFile.create_group(f'ReprBldID_{ID_repr_PSPA}')
+        IM_list = sorted(BldLoss['IM'].unique())
+        i_IM = -1
+        for im in IM_list:
+            i_IM += 1
+            grp_im = grp.create_group(f'IM{i_IM}')
+            grp_im.attrs['IM'] = im
+            for losstype in ['DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime']:
+                if losstype in BldLoss.columns:
+                    grp_im_loss = grp_im.create_group(losstype)
+                    BldLoss_IM: pd.Series = BldLoss.loc[BldLoss['IM'] == im, losstype]
+                    if losstype.startswith('DS'):
+                        # calculate probability of each damage state
+                        DS_prob = BldLoss_IM.value_counts(normalize=True)
+                        for DS, prob in DS_prob.items():
+                            grp_im_loss.create_dataset(DS, data=prob)
+                    else:
+                        # save CDF of the loss
+                        quantiles = np.linspace(0, 1, 101)
+                        ecdf_values = np.quantile(BldLoss_IM, quantiles)
+                        grp_im_loss.create_dataset('quantiles', data=ecdf_values)
+        logger.debug(f"Results saved to HDF5 for building {ID_repr_PSPA}")
+    except Exception as e:
+        logger.error(f"Error saving results to HDF5 for building {ID_repr_PSPA}: {str(e)}")
+        raise
 
     # move the result files to the output directory
     if OutputDir is not None:
-        shutil.move(OutputDir / 'BldLoss.csv', OutputDir / f'BldLoss_ReprPSPAID_{ID_repr_PSPA}.csv')
-        shutil.move(OutputDir / 'SimEDP.csv', OutputDir / f'SimEDP_ReprPSPAID_{ID_repr_PSPA}.csv')
+        try:
+            shutil.move(OutputDir / 'BldLoss.csv', OutputDir / f'BldLoss_ReprPSPAID_{ID_repr_PSPA}.csv')
+            shutil.move(OutputDir / 'SimEDP.csv', OutputDir / f'SimEDP_ReprPSPAID_{ID_repr_PSPA}.csv')
+            logger.debug(f"Result files moved for building {ID_repr_PSPA}")
+        except Exception as e:
+            logger.warning(f"Error moving result files for building {ID_repr_PSPA}: {str(e)}")
 
     return SimEDP, BldLoss
 
@@ -141,13 +166,22 @@ def LossAssess(ReprBldPSPADir: Path = ReprBldPSPADir, ReprBldDir: Path = ReprBld
                         /quantiles
     '''
 
+    logger.info("Starting probabilistic seismic loss assessment for representative buildings")
+    logger.info(f"ReprBldPSPADir: {ReprBldPSPADir}")
+    logger.info(f"IDA_results_dir: {IDA_results_dir}")
+    logger.info(f"OutputDir: {OutputDir}")
+    logger.info(f"StartOver: {StartOver}")
+
     OutputDir.mkdir(parents=True, exist_ok=True)
 
     # Read representative building data for PSPA
+    logger.info("Reading representative building data for PSPA")
     ReprBld_df = ClassifyBld.ReadReprBld(ReprBldPSPADir)
     ReprBld_df['ReprPSPAID'] = ReprBld_df.index
+    logger.info(f"Found {len(ReprBld_df)} representative buildings for PSPA")
 
     # determine repr ID of IDA for each building in PSPA
+    logger.info("Mapping PSPA buildings to IDA buildings")
     ReprBld_df_IDA = ClassifyBld.ReadReprBld(ReprBldDir)
     ReprBld_df_IDA['ReprBldID'] = ReprBld_df_IDA.index
     common_columns = list(set(ReprBld_df.columns) & set(ReprBld_df_IDA.columns))
@@ -156,26 +190,45 @@ def LossAssess(ReprBldPSPADir: Path = ReprBldPSPADir, ReprBldDir: Path = ReprBld
 
     # Check if the number of rows in ReprBld_df remains the same before and after merging
     if len(ReprBld_df) != num_rows_before_merge:
+        logger.error("The number of rows in ReprBld_df has changed after merging")
         raise ValueError("The number of rows in ReprBld_df has changed after merging.")
+    
+    logger.info(f"Successfully mapped {len(ReprBld_df)} buildings")
 
     with h5py.File(hdf5File, "a") as f:
         if not StartOver:
             # skip buildings that have already been simulated
             ReprBldIDs = [key.split('_')[-1] for key in f.keys()]
-            ReprBld_df = ReprBld_df[~ReprBld_df['ReprPSPAID'].astype(str).isin(ReprBldIDs)]
+            buildings_to_skip = ReprBld_df['ReprPSPAID'].astype(str).isin(ReprBldIDs)
+            skipped_count = buildings_to_skip.sum()
+            ReprBld_df = ReprBld_df[~buildings_to_skip]
+            logger.info(f"Skipped {skipped_count} buildings that have already been simulated")
         else:
             # remove the repr buildings in hdf5File that are included in ReprBldPSPADir, so that the loss simulations can be re-run
+            removed_count = 0
             for repr_bld_id in ReprBld_df['ReprPSPAID'].astype(str):
                 if repr_bld_id in f:
                     del f[f'ReprBldID_{repr_bld_id}']
+                    removed_count += 1
+            logger.info(f"Removed {removed_count} existing building results from HDF5 file")
 
         # Perform loss simulations for each representative building
-        print('Performing loss simulations for each representative building...')
+        buildings_to_process = len(ReprBld_df)
+        logger.info(f'Performing loss simulations for {buildings_to_process} representative buildings...')
+        if buildings_to_process == 0:
+            logger.info("No buildings to process")
+            return
+            
         tqdm.pandas()
-        ReprBld_df.progress_apply(
-            lambda row: _LossSim_1Bld(row, h5pyFile=f, IDA_result_dir = IDA_results_dir),
-            axis=1
-        )
+        try:
+            ReprBld_df.progress_apply(
+                lambda row: _LossSim_1Bld(row, h5pyFile=f, IDA_result_dir = IDA_results_dir),
+                axis=1
+            )
+            logger.info(f"Successfully completed loss simulations for all {buildings_to_process} buildings")
+        except Exception as e:
+            logger.error(f"Error during loss simulations: {str(e)}")
+            raise
 
 def GetProbDS(ReprPSPAID: int, IM: list[float], losstype: str) -> list[dict]:
     '''
@@ -190,8 +243,11 @@ def GetProbDS(ReprPSPAID: int, IM: list[float], losstype: str) -> list[dict]:
         DS_prob_All (list[dict]). List of dictionaries. Each dictionary contains the probability of each damage state. DS values include 'None', 'Slight', 'Moderate', 'Extensive', 'Complete'
     '''
 
+    logger.debug(f"Getting damage state probabilities for ReprPSPAID: {ReprPSPAID}, losstype: {losstype}")
+    
     # check losstype is valid
     if losstype not in LossTypes1:
+        logger.error(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes1)}")
         raise ValueError(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes1)}")
 
     DS_prob_All = []
@@ -242,14 +298,19 @@ def GetCDFLoss(ReprPSPAID: int, IM: list[float], losstype: str, loss: list[float
     Returns:
         prob_loss (list[float]). List of probabilities of the loss value for each IM
     '''
+    
+    logger.debug(f"Getting CDF loss for ReprPSPAID: {ReprPSPAID}, losstype: {losstype}")
+    
     prob_loss = []
 
     # number of loss values should be the same as the number of IMs
     if len(IM) != len(loss):
+        logger.error("The number of loss values should be the same as the number of IMs")
         raise ValueError("The number of loss values should be the same as the number of IMs")
 
     # check losstype is valid
     if losstype not in LossTypes2:
+        logger.error(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes2)}")
         raise ValueError(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes2)}")
     
     with h5py.File(hdf5File, 'r') as f:
@@ -298,15 +359,19 @@ def SimLossRandomly(ReprPSPAID: int, IM: list[float], losstype: str, Nsim: list[
         sim_loss (list[list]). List of simulated loss values for each IM. Each element is a list of Nsim values.
     '''
     
+    logger.debug(f"Simulating random losses for ReprPSPAID: {ReprPSPAID}, losstype: {losstype}")
+    
     sim_loss = []
 
     if losstype in LossTypes1:
+        logger.debug(f"Processing damage state type: {losstype}")
         ds_prob = GetProbDS(ReprPSPAID, IM, losstype)
         for i, im in enumerate(IM):
             sim_loss_im = np.random.choice(DS_types, size=Nsim[i], p=[ds_prob[i][key] for key in DS_types]).tolist()
             sim_loss.append(sim_loss_im)
 
     elif losstype in LossTypes2:
+        logger.debug(f"Processing loss type: {losstype}")
         with h5py.File(hdf5File, 'r') as f:
             grp_h5py = f[f'ReprBldID_{ReprPSPAID}']
             grp = Utilities.load_h5py_group_to_memory(grp_h5py)
@@ -336,6 +401,8 @@ def SimLossRandomly(ReprPSPAID: int, IM: list[float], losstype: str, Nsim: list[
                     loss_interp.append(float(np.interp(im, [IM_list[closest_indices[0]], IM_list[closest_indices[1]]], [loss_2im[0][j], loss_2im[1][j]])))
                 sim_loss.append(loss_interp)
     else:  
+        logger.error(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes1 + LossTypes2)}")
         raise ValueError(f"Invalid losstype: {losstype}. Options: {', '.join(LossTypes1 + LossTypes2)}")
     
+    logger.debug(f"Completed simulation for {len(IM)} IM values")
     return sim_loss

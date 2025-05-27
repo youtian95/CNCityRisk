@@ -53,18 +53,17 @@ if __name__ == '__main__':
         plot_city.plot_histogram_bld(CityName = CityName, DistrictName='包河区', prop = 'story')
 
     # IDA analysis for individual representative buildings
-    if 1:
+    if 0:
         IDA_ReprBld.IDA_analysis(NumPool=4)
 
     # Figures: plot IDA results for one buiding
     if 0:
-        ReprBld = 100
+        ReprBld = 20000
         IDA_results = (IDA_ReprBld.OutputDir / ('IDA_result_ReprBldID_'+str(ReprBld)+'.csv')).as_posix()
-        FigName = 'IDA.jpg'
-        IDA.plot_IDA_results(IDA_results, Stat=True, FigName=FigName)
+        IDA.plot_IDA_results(IDA_results, Stat=True)
 
     # Seismic loss simulation for individual representative buildings
-    if 0:
+    if 1:
         BldPSPA_ReprBld.LossAssess()
 
     # Earthquake events generation
