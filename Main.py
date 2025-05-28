@@ -71,11 +71,11 @@ if __name__ == '__main__':
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 1:
+    if 0:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
-    if 0:
+    if 1:
         IMSim.CityBldIMSimFromEvents(CityName)
     if 0:
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=24)

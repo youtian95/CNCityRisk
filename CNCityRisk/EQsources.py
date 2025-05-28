@@ -1,6 +1,6 @@
-
 from . import Utilities
 from . import plot_city
+from . import Logger
 
 from pathlib import Path
 from openquake.commands import engine, reset, purge
@@ -15,8 +15,12 @@ import math
 CHN_EQS_DIR = Path(__file__).parent / 'Data/GEM-CHN-v2021.1.0'
 EQ_SOURCES_OUTPUT_DIR = Path(__file__).parent / 'results/EQsources'
 
+# Create module logger
+logger = Logger.get_logger('EQsources')
+
 def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opacity=0.5):
     # Plot the earthquake events
+    logger.info(f"Starting to plot earthquake events for city: {CityName}")
 
     
     results_dir = EQ_SOURCES_OUTPUT_DIR / CityName
@@ -46,13 +50,15 @@ def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opa
     m.fit_bounds(m.get_bounds())
 
     # add location popup
-    folium.LatLngPopup().add_to(m)
-
+    folium.LatLngPopup().add_to(m)    
+    
     # save the map
     m.save(results_dir / 'ruptures.html')
+    logger.info(f"Earthquake rupture map saved: {results_dir / 'ruptures.html'}")
 
     # open the map in the browser
     webbrowser.open_new( 'file://' + str((results_dir / 'ruptures.html').resolve()) )
+    logger.info(f"Earthquake events plotting completed for city: {CityName}")
 
 def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
     '''
@@ -136,6 +142,7 @@ class EQsource:
     log_file = None
 
     def __init__(self, results_dir = None, CityName: str = None):
+        logger.info("Initializing EQsource instance")
 
         if results_dir is not None:
             self.results_dir = results_dir
@@ -148,31 +155,44 @@ class EQsource:
             self.results_dir.mkdir(parents=True)
 
         self.log_file = self.results_dir / 'op_engine.log'
+        logger.info(f"EQsource instance initialized, results directory: {self.results_dir}")
 
         purge.purge_all()
+        logger.info("OpenQuake cache cleanup completed")
 
     def generate_earthquake_events(self, city_name: str):
         # Generate earthquake events for the target city
+        logger.info(f"Starting to generate earthquake events for city: {city_name}")
 
         # Get the city bounds
         Bld_gdf = Utilities.get_CityBldData(city_name)
         minx, miny, maxx, maxy = Bld_gdf.total_bounds
         buffer = 0.1  # Increase the bounds by a small buffer
+        logger.info(f"City bounds: [{minx:.4f}, {miny:.4f}, {maxx:.4f}, {maxy:.4f}], buffer: {buffer}")
 
         # Create a meshed site file
         self._CreateMeshedSiteFile(minx - buffer, maxx + buffer, miny - buffer, maxy + buffer)
+        logger.info("Meshed site file creation completed")
         
         # Run the engine
+        logger.info("Starting OpenQuake engine run")
         engine.main(run=[self.jobpath], log_file=self.log_file)
+        logger.info("OpenQuake calculation completed")
+        
         engine.main(export_outputs=(-1, self.results_dir))
-
+        logger.info(f"Results export completed, saved to: {self.results_dir}")
+        logger.info(f"Earthquake events generation completed for city: {city_name}")
 
     def _clean_results(self):
         # delete the results directory
         if self.results_dir.exists():
+            logger.info(f"Cleaning existing results directory: {self.results_dir}")
             shutil.rmtree(self.results_dir)
-
+            logger.info("Results directory cleanup completed")    
+            
     def _CreateMeshedSiteFile(self, lonMin, lonMax, latMin, latMax, SiteFile = CHN_EQS_DIR / 'sites_chn.csv', MeshDist = 10000):
+        logger.info(f"Creating meshed site file: {SiteFile}")
+        logger.info(f"Longitude range: [{lonMin:.4f}, {lonMax:.4f}], latitude range: [{latMin:.4f}, {latMax:.4f}], mesh distance: {MeshDist}m")
 
         # a file is generated. Columns are speparated by space
         Utilities.CreateMeshedSiteFile(lonMin, lonMax, latMin, latMax, SiteFile = SiteFile, MeshDist = MeshDist)
@@ -203,18 +223,22 @@ class EQsource:
 
         # output
         df.to_csv(SiteFile, index_label='site_id')
+        logger.info(f"Site file processing completed, total {len(df)} sites")
 
 
 def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
     # Read the earthquake Ruptures for the target city
+    logger.info(f"Reading earthquake rupture data for city: {CityName}")
 
     results_dir = results_dir / CityName
 
     for file in results_dir.glob('*ruptures*.csv'):
+        logger.info(f"Reading rupture file: {file}")
         rup_df = pd.read_csv(file, header=1, dtype={'rup_id': str, 'trt': str, 'multiplicity': int, 'source_id': str})
         float_columns = rup_df.columns.difference(['rup_id', 'trt', 'multiplicity', 'source_id'])
         rup_df[float_columns] = rup_df[float_columns].astype(float)
         # add i_rup
         rup_df['i_rup'] = rup_df.index
 
+    logger.info(f"Rupture data reading completed, total {len(rup_df)} records")
     return rup_df
