@@ -1,6 +1,7 @@
 from . import Utilities
 from . import ClassifyBld
 from . import EQsources
+from . import Logger
 
 import pandas as pd
 import os
@@ -29,6 +30,9 @@ IM_MAT_BLD_FILENAME = 'all_IM_mat_Bld.h5'
 RUPID_2_ISIM_FILENAME = 'rupid_2_iSim.csv'
 IM_SIM_DIR = Path(__file__).parent / 'results/IMsim/'
 
+# Initialize logger for this module
+logger = Logger.get_logger('IMSim')
+
 class SpatialIM():
     '''
     IM field simulation. 
@@ -56,15 +60,16 @@ class SpatialIM():
     lonVec: list = None # corresponding longitude
     latVec: list = None # corresponding latitude
     IM_mat: np.array = None # numpy array - [numel(ID_site), N_sim, i_T]
-    Tvec: np.array = None # numpy array - periods corresponding to [i_T]
-
+    Tvec: np.array = None # numpy array - periods corresponding to [i_T]    
+    
     def __init__(self):
-        pass
-
+        logger.info("SpatialIM instance initialized")    
+        
     def CreateAExampleSourceFile(self, EQSourceFile='EQSource.txt'):
         '''
         Create a example EQ source file, located at Wuhan, China
         '''
+        logger.info("Creating example earthquake source file for Wuhan, China")
 
         ifmedian = False  # False为随机
         M = 6.0
@@ -87,12 +92,16 @@ class SpatialIM():
 
         # Call the CreateSourceFile method
         self.CreateSourceFile(M, N_sim, lon_0, lat_0, W, length, RuptureNormal_x, RuptureNormal_y, RuptureNormal_z, lambda_degree, Zhyp, Fhw, ifmedian, seed, region, nPCs, EQSourceFile)
+        logger.info(f"Example earthquake source file created: {EQSourceFile}")
 
     def SetMeshedSiteFile(self, SiteFile):
         '''
         Specify a meshed site file
         '''
+        logger.info(f"Setting meshed site file: {SiteFile}")
+        
         if not Path(SiteFile).exists():
+            logger.error(f"Site file not found: {SiteFile}")
             raise FileNotFoundError(f"Site file {SiteFile} does not exist")
         
         self.SiteFile = Path(SiteFile).resolve()
@@ -103,8 +112,9 @@ class SpatialIM():
         self.lonVec = lonVec
         self.latVec = latVec
 
-        return IDvec, lonVec, latVec
-
+        logger.info(f"Meshed site file loaded successfully with {len(IDvec)} sites")
+        return IDvec, lonVec, latVec    
+    
     def CreateMeshedSiteFile(self, lonMin, lonMax, latMin, latMax, SiteFile = 'SiteFile.txt', MeshDist = 500):
         """
         Generate a meshed site file
@@ -131,6 +141,9 @@ class SpatialIM():
             Vs30_mpers - shear wave velocity
             Z25_km - depth to the 2.5 km/s shear wave velocity horizon in km (if unknown, input 999)
         """
+        logger.info(f"Creating meshed site file: {SiteFile}")
+        logger.info(f"Mesh extent: lon({lonMin}, {lonMax}), lat({latMin}, {latMax}), distance: {MeshDist}m")
+        
         self.SiteFile = Path(SiteFile).resolve()
 
         IDvec, lonVec, latVec = Utilities.CreateMeshedSiteFile(lonMin, lonMax, latMin, latMax, SiteFile = self.SiteFile, MeshDist = MeshDist)
@@ -139,6 +152,7 @@ class SpatialIM():
         self.lonVec = lonVec
         self.latVec = latVec
 
+        logger.info(f"Meshed site file created successfully with {len(IDvec)} sites")
         return IDvec, lonVec, latVec
 
     def CreateSourceFile_StrikeDip(self, M, N_sim, lon_Hypo, lat_Hypo, W_km, length_km, strike, dip, lambda_degree, Zhyp_km, Fhw=True, ifmedian=False, seed=0, region=3, nPCs=10, EQSourceFile='EQSource.txt'):
@@ -163,6 +177,8 @@ class SpatialIM():
             region: int, region number. 0 for global (including Taiwan), 1 for California, 3 for China or Turkey, 4 for Italy
             nPCs: int, number of principal components
         '''
+        logger.info(f"Creating earthquake source file with M={M}, strike={strike}°, dip={dip}°")
+        
         # calculate the rupture normal vector
         RuptureNormal_x, RuptureNormal_y, RuptureNormal_z = Utilities.CalcRuptureNormal(strike, dip)
         
@@ -191,14 +207,19 @@ class SpatialIM():
             region: int, region number. 0 for global (including Taiwan), 1 for California, 3 for China or Turkey, 4 for Italy
             nPCs: int, number of principal components
         '''
+        logger.info(f"Creating earthquake source file: M={M}, {N_sim} simulations")
+        logger.debug(f"Hypocenter location: ({lon_Hypo}, {lat_Hypo}), depth: {Zhyp_km}km")
 
         # uknown parameters
         if W_km == 999:
             W_km = EQsources.default_W_km(M, lambda_degree)
+            logger.debug(f"Using default rupture width: {W_km}km")
         if Zhyp_km == 999:
             EQsources.default_Zhyp_km(M, lambda_degree)
+            logger.debug(f"Using default hypocenter depth: {Zhyp_km}km")
         if length_km == 999:
             length_km = EQsources.default_length_km(W_km, lambda_degree)
+            logger.debug(f"Using default rupture length: {length_km}km")
 
         if EQSourceFile is not None:
             self.EQSourceFile = Path(EQSourceFile).resolve()
@@ -213,6 +234,8 @@ class SpatialIM():
                 f"{RuptureNormal_x} {RuptureNormal_y} {RuptureNormal_z}", lambda_degree,
                 int(Fhw), Zhyp_km, region, nPCs]
             f.write('\n'.join(map(str, params)) + '\n')
+        
+        logger.info(f"Earthquake source file created: {self.EQSourceFile}")
 
     def IMFieldSim(self, OutputDir):
         '''
@@ -221,6 +244,9 @@ class SpatialIM():
         Parameters:
             OutputDir: str, Output Directory
         '''
+        logger.info(f"Starting IM field simulation")
+        logger.info(f"Output directory: {OutputDir}")
+        
         self.OutputDir = Path(OutputDir).resolve()
         if not self.OutputDir.exists():
             self.OutputDir.mkdir(parents=True)
@@ -229,16 +255,25 @@ class SpatialIM():
         EQSourceFile = str(Path(self.EQSourceFile).resolve())
         SiteFile = str(Path(self.SiteFile).resolve())
 
+        logger.debug(f"Source file: {EQSourceFile}")
+        logger.debug(f"Site file: {SiteFile}")
+
         try:
             os.chdir(OutputDir)
+            logger.info("Running IM simulation executable...")
             subprocess.run([self.IMSimExe, EQSourceFile, SiteFile], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         except subprocess.CalledProcessError as e:
+            logger.error(f"IM field simulation failed: {EQSourceFile} - {SiteFile}")
+            logger.error(f"Error details: {e.stderr.decode() if e.stderr else 'No error details'}")
             print(f"Simulations of seismic intensity fields failed: {EQSourceFile} - {SiteFile}")
         else:
+            logger.info("IM simulation completed successfully")
             self._ReadIMSim()
             # check if there are NaN values
             if np.isnan(self.IM_mat).any():
+                logger.error("IM simulation results contain NaN values")
                 raise ValueError("Error: IM_mat contains NaN values")
+            logger.info(f"IM simulation results loaded: {self.IM_mat.shape}")
         finally:
             os.chdir(oldFolder)
 
@@ -284,6 +319,11 @@ class SpatialIM():
         Returns:
             self.BldInfo: list - building information. It is a list of dictionaries with keys 'centroid' and 'T'. 'centroid' is a list of [lon, lat], and 'T' is the period.
         '''
+        if DistrictName is None:
+            logger.info(f"Loading building data for city: {CityName}")
+        else:
+            logger.info(f"Loading building data for district: {DistrictName}, {CityName}")
+        
         print(f"Loading building data for IM simulation...")
 
         # Building information file
@@ -291,6 +331,8 @@ class SpatialIM():
             BldInfo = Utilities.get_CityBldData(CityName)
         else:
             BldInfo = Utilities.ReadDistrictBldGDF(CityName, DistrictName)
+        
+        logger.info(f"Loaded {len(BldInfo)} buildings")
         
         # create centroid column and T column
         BldInfo['centroid'] = BldInfo.apply(lambda row: [row['longitude'], row['latitude']], axis=1)
@@ -302,6 +344,8 @@ class SpatialIM():
 
         # convert to list of dictionaries
         self.BldInfo = BldInfo.to_dict(orient='records')
+        
+        logger.info(f"Building data prepared successfully: {len(self.BldInfo)} buildings")
 
     def InterpIMfromMeshForCity(self, ResultFileName='IM_mat_Bld.txt') -> np.array:
         """
@@ -310,6 +354,7 @@ class SpatialIM():
         Returns:
             IM_mat_Bld: numpy array - interpolated IM results at building locations (i_bld, i_Sim)
         """
+        logger.info("Starting interpolation of IM results from mesh to building locations")
 
         IM_mat_Bld = self._InterpIMfromMesh(self.BldInfo)
 
@@ -317,7 +362,9 @@ class SpatialIM():
         if ResultFileName is not None:
             filepath = self.OutputDir / ResultFileName
             np.savetxt(filepath, IM_mat_Bld, fmt='%.4f')
+            logger.info(f"Interpolated IM results saved to: {filepath}")
 
+        logger.info(f"Interpolation completed for {IM_mat_Bld.shape[0]} buildings")
         return IM_mat_Bld
 
     def _InterpIMfromMesh(self, BldInfo: list) -> np.array:
@@ -661,11 +708,15 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR):
     '''
     IM field simulation for buildings in a city. A series of earthquake events are generated and simulated.
     '''
+    logger.info(f"Starting IM field simulation for city: {CityName}")
+    
     sim = SpatialIM()
     sim.PrepareCityBldData(CityName)
 
     # meshed site file
     print(f"Creating meshed site file for {CityName}...")
+    logger.info(f"Creating meshed site file for {CityName}")
+    
     SiteFile = OutputDir / CityName / 'SiteFile.txt'
     Bld_gdf = Utilities.get_CityBldData(CityName)
     minx, miny, maxx, maxy = Bld_gdf.total_bounds
@@ -674,10 +725,12 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR):
 
     # Read earthquake ruptures
     rup_df = EQsources.ReadCityRuptures(CityName)
+    logger.info(f"Processing {len(rup_df)} earthquake ruptures for {CityName}")
 
     # Loop over each rupture
     for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Simulating IM fields...'):
         rup_id = row['rup_id']
+        logger.debug(f"Processing rupture {i+1}/{len(rup_df)}: {rup_id} (M={row['mag']})")
 
         # Create a EQ source file
         EQSourceFileName = OutputDir / f'{CityName}/rup_id_{rup_id}/EQSource.txt'
@@ -690,6 +743,7 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR):
         # interpolate
         sim.InterpIMfromMeshForCity() # numpy array (i_bld, i_Sim)
 
+    logger.info(f"IM field simulation completed for {CityName}")
     _MergeIMMatBldFiles(CityName, OutputDir=OutputDir)
 
 def _MergeIMMatBldFiles(CityName: str, OutputDir=IM_SIM_DIR, IM_mat_Bld_FileName=IM_MAT_BLD_FILENAME, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME):
