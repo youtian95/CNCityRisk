@@ -63,7 +63,7 @@ if __name__ == '__main__':
         IDA.plot_IDA_results(IDA_results, Stat=True)
 
     # Seismic loss simulation for individual representative buildings
-    if 1:
+    if 0:
         BldPSPA_ReprBld.LossAssess()
 
     # Earthquake events generation
@@ -71,7 +71,7 @@ if __name__ == '__main__':
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
-    if 0:
+    if 1:
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation

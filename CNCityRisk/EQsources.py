@@ -211,8 +211,8 @@ def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.D
     results_dir = results_dir / CityName
 
     for file in results_dir.glob('*ruptures*.csv'):
-        rup_df = pd.read_csv(file, header=1, dtype={'rup_id': str, 'trt': str, 'multiplicity': int})
-        float_columns = rup_df.columns.difference(['rup_id', 'trt', 'multiplicity'])
+        rup_df = pd.read_csv(file, header=1, dtype={'rup_id': str, 'trt': str, 'multiplicity': int, 'source_id': str})
+        float_columns = rup_df.columns.difference(['rup_id', 'trt', 'multiplicity', 'source_id'])
         rup_df[float_columns] = rup_df[float_columns].astype(float)
         # add i_rup
         rup_df['i_rup'] = rup_df.index
