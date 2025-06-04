@@ -849,12 +849,12 @@ def RuptureNormal2StrikeDip(RuptureNormal_x, RuptureNormal_y, RuptureNormal_z):
         RuptureNormal_z: float - z component of the rupture normal vector. Up
 
     Returns:
-        strike: float - strike angle in degrees (0-360). The strike direction correspond to the angle between the north and the direction you take so that when you walk along the Fault Trace the fault dips on your right.
+        strike: float - strike angle in degrees (0-360). The strike direction correspond to the angle between the north and the direction you take so that when you walk along the Fault Trace the fault dips on your right. Clockwise from North.
         dip: float - dip angle in degrees. The dip is the steepest angle of descent of the fault plane relative to a horizontal plane; it is measured in degrees [0,90]
     """
 
     one = math.sqrt(RuptureNormal_x**2 + RuptureNormal_y**2 + RuptureNormal_z**2)
-    strike = math.degrees(math.atan2(RuptureNormal_y/one, RuptureNormal_x/one))
+    strike = 90 - math.degrees(math.atan2(RuptureNormal_y/one, RuptureNormal_x/one))
     dip = math.degrees(math.acos(RuptureNormal_z/one))
 
     return strike, dip

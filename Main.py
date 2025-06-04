@@ -75,7 +75,7 @@ if __name__ == '__main__':
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
-    if 1:
+    if 0:
         IMSim.CityBldIMSimFromEvents(CityName)
     if 0:
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=24)
