@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import RegularGridInterpolator
 from scipy.interpolate import griddata
 import matplotlib
 import matplotlib.pyplot as plt
@@ -237,12 +238,13 @@ class SpatialIM():
         
         logger.info(f"Earthquake source file created: {self.EQSourceFile}")
 
-    def IMFieldSim(self, OutputDir):
+    def IMFieldSim(self, OutputDir, overwrite: bool = False):
         '''
         IM field simulation given a source file and a site file
 
         Parameters:
             OutputDir: str, Output Directory
+            overwrite: bool, if True, overwrite the existing output directory
         '''
         logger.info(f"Starting IM field simulation")
         logger.info(f"Output directory: {OutputDir}")
@@ -250,6 +252,11 @@ class SpatialIM():
         self.OutputDir = Path(OutputDir).resolve()
         if not self.OutputDir.exists():
             self.OutputDir.mkdir(parents=True)
+
+        if (self.OutputDir / 'IM sim.txt').exists() and not overwrite:
+            logger.warning(f"Output directory already exists: {self.OutputDir}. IM field simualtions are skipped. Use 'overwrite=True' to overwrite.")
+            self._ReadIMSim()
+            return
 
         oldFolder = os.getcwd()
         EQSourceFile = str(Path(self.EQSourceFile).resolve())
@@ -269,10 +276,6 @@ class SpatialIM():
         else:
             logger.info("IM simulation completed successfully")
             self._ReadIMSim()
-            # check if there are NaN values
-            if np.isnan(self.IM_mat).any():
-                logger.error("IM simulation results contain NaN values")
-                raise ValueError("Error: IM_mat contains NaN values")
             logger.info(f"IM simulation results loaded: {self.IM_mat.shape}")
         finally:
             os.chdir(oldFolder)
@@ -287,6 +290,11 @@ class SpatialIM():
         """
         
         self.IM_mat, self.Tvec = _Read_IMSim_results(self.OutputDir)
+        
+        # check if there are NaN values
+        if np.isnan(self.IM_mat).any():
+            logger.error("IM simulation results contain NaN values")
+            raise ValueError("Error: IM_mat contains NaN values")
 
         return self.IM_mat, self.Tvec
 
@@ -347,77 +355,351 @@ class SpatialIM():
         
         logger.info(f"Building data prepared successfully: {len(self.BldInfo)} buildings")
 
-    def InterpIMfromMeshForCity(self, ResultFileName='IM_mat_Bld.txt') -> np.array:
+    def InterpIMfromMeshForCity(self, ResultFileName='IM_mat_Bld.txt', batch_size: int = 500000, use_regular_grid: bool = True, overwrite: bool = False) -> np.array:
         """
         Interpolate IM simulation results from mesh to building locations and periods
+
+        Parameters:
+            ResultFileName: str - output file name for results
+            batch_size: int - number of buildings to process in each batch to avoid memory explosion
+            use_regular_grid: bool - whether to use regular grid interpolation (faster) or LinearNDInterpolator
+            overwrite: bool - if True, overwrite the existing result file
 
         Returns:
             IM_mat_Bld: numpy array - interpolated IM results at building locations (i_bld, i_Sim)
         """
         logger.info("Starting interpolation of IM results from mesh to building locations")
 
-        IM_mat_Bld = self._InterpIMfromMesh(self.BldInfo)
-
-        # Save to file
+        # file path for results
         if ResultFileName is not None:
             filepath = self.OutputDir / ResultFileName
-            np.savetxt(filepath, IM_mat_Bld, fmt='%.4f')
-            logger.info(f"Interpolated IM results saved to: {filepath}")
+
+        if filepath.exists() and not overwrite:
+            logger.warning(f"IM_mat_Bld result file already exists: {filepath}. Use 'overwrite=True' to overwrite.")
+            return np.loadtxt(filepath, dtype=np.float32)
+
+        if use_regular_grid:
+            logger.info("Using regular grid interpolation method")
+            IM_mat_Bld = self._InterpIMfromMesh_RegularGrid(self.BldInfo)
+        else:
+            logger.info("Using LinearNDInterpolator method with batching")
+            IM_mat_Bld = self._InterpIMfromMesh(self.BldInfo, batch_size=batch_size)
+
+        # Save to file
+        np.savetxt(filepath, IM_mat_Bld, fmt='%.4f')
+        logger.info(f"Interpolated IM results saved to: {filepath}")
 
         logger.info(f"Interpolation completed for {IM_mat_Bld.shape[0]} buildings")
         return IM_mat_Bld
-
-    def _InterpIMfromMesh(self, BldInfo: list) -> np.array:
+    
+    def _InterpIMfromMesh(self, BldInfo: list, batch_size: int = 500000) -> np.array:
         """
         Interpolate IM simulation results from mesh to building locations and periods
 
         Parameters:
             BldInfo: list - building information. It is a list of dictionaries with keys 'centroid' and 'T'. 'centroid' is a list of [lon, lat], and 'T' is the period.
+            batch_size: int - number of buildings to process in each batch to avoid memory explosion
 
         Returns:
             IM_mat_Bld: numpy array - interpolated IM results at building locations (i_bld, i_Sim).
         """
-        # Convert geographic coordinates to Web Mercator projection
+        logger.info(f"Starting interpolation for {len(BldInfo)} buildings in batches of {batch_size}")
+        
+        # Convert geographic coordinates to Web Mercator projection (do this once for mesh)
         transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857")
         xVec, yVec = transformer.transform(self.latVec, self.lonVec)
-        
-        # Building locations
-        centroid = np.array([bld['centroid'] for bld in BldInfo])
-        TBldVec = np.array([bld['T'] for bld in BldInfo])
-        xBldVec, yBldVec = transformer.transform(centroid[:, 1],centroid[:, 0])
 
         N_ID = self.IM_mat.shape[0]
         N_sim = self.IM_mat.shape[1]
         N_T = self.IM_mat.shape[2]
 
+        # Prepare mesh data once (avoid repeated operations)
         # Expand according to TVec_Mesh
         IM_mat_Mesh = np.moveaxis(self.IM_mat, 2, 0)  # (i_T, i_ID, i_Sim)
-        IM_mat_Mesh = IM_mat_Mesh.reshape((N_T * N_ID, N_sim), order='F')  # (i_T * i_ID, i_Sim) - F means the first index changes the fastest
-        xVec = np.tile(xVec, (N_T, 1)).reshape(-1, order='F')  # (i_T * i_ID)
-        yVec = np.tile(yVec, (N_T, 1)).reshape(-1, order='F')  # (i_T * i_ID)
+        IM_mat_Mesh = IM_mat_Mesh.reshape((N_T * N_ID, N_sim), order='F')  # (i_T * i_ID, i_Sim)
+        xVec_expanded = np.tile(xVec, (N_T, 1)).reshape(-1, order='F')  # (i_T * i_ID)
+        yVec_expanded = np.tile(yVec, (N_T, 1)).reshape(-1, order='F')  # (i_T * i_ID)
         TVec_Mesh = np.tile(self.Tvec, N_ID)  # (i_T * i_ID)
 
-        assert len(xVec) == len(yVec) == len(TVec_Mesh) == (N_T * N_ID)
+        assert len(xVec_expanded) == len(yVec_expanded) == len(TVec_Mesh) == (N_T * N_ID)
 
         # check if there are NaN values
         if np.isnan(IM_mat_Mesh).any():
             raise ValueError("Error: IM_mat_Mesh contains NaN values")
-        
-        # make sure the xBldVec,yBldVec are within the range of xVec,yVec
-        if np.any(xBldVec < np.min(xVec)) or np.any(xBldVec > np.max(xVec)) or np.any(yBldVec < np.min(yVec)) or np.any(yBldVec > np.max(yVec)):
-            raise ValueError("Error: Building location is out of range of meshed sites")
 
-        # Interpolate
-        points = np.column_stack((xVec, yVec, TVec_Mesh))
-        # in case TBldVec is out of the range of TVec_Mesh, we use the nearest value
-        TBldVec = np.clip(TBldVec, np.min(TVec_Mesh), np.max(TVec_Mesh))
+        # Create interpolator once (avoid repeated operations)
+        points = np.column_stack((xVec_expanded, yVec_expanded, TVec_Mesh))
         F = LinearNDInterpolator(points, IM_mat_Mesh)
-        IM_mat_Bld = F(xBldVec, yBldVec, TBldVec)  # (i_bld, i_Sim)
+        logger.info("Linear interpolator created successfully")        # Process buildings in batches
+        total_buildings = len(BldInfo)
+        num_batches = (total_buildings + batch_size - 1) // batch_size
+        logger.info(f"Processing {total_buildings} buildings in {num_batches} batches")
 
-        # check if there are NaN values
+        # Initialize result array
+        IM_mat_Bld_list = []
+
+        # Use tqdm for progress bar
+        with tqdm(total=num_batches, desc="IM Interpolation", unit="batch") as pbar:
+            for batch_idx in range(num_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min((batch_idx + 1) * batch_size, total_buildings)
+                batch_BldInfo = BldInfo[start_idx:end_idx]
+                
+                # Update progress bar description with current batch info
+                pbar.set_description(f"IM Interpolation (Batch {batch_idx + 1}/{num_batches}, Buildings {start_idx}-{end_idx-1})")
+                
+                logger.debug(f"Processing batch {batch_idx + 1}/{num_batches} (buildings {start_idx}-{end_idx-1})")
+
+                # Building locations for this batch
+                centroid_batch = np.array([bld['centroid'] for bld in batch_BldInfo])
+                TBldVec_batch = np.array([bld['T'] for bld in batch_BldInfo])
+                xBldVec_batch, yBldVec_batch = transformer.transform(centroid_batch[:, 1], centroid_batch[:, 0])
+
+                # make sure the building locations are within the range of mesh sites
+                if np.any(xBldVec_batch < np.min(xVec)) or np.any(xBldVec_batch > np.max(xVec)) or \
+                   np.any(yBldVec_batch < np.min(yVec)) or np.any(yBldVec_batch > np.max(yVec)):
+                    logger.error("Error: Building location is out of range of meshed sites")
+                    raise ValueError("Error: Building location is out of range of meshed sites")
+
+                # in case TBldVec is out of the range of TVec_Mesh, we use the nearest value
+                TBldVec_batch = np.clip(TBldVec_batch, np.min(TVec_Mesh), np.max(TVec_Mesh))
+
+                # Interpolate for this batch
+                IM_mat_Bld_batch = F(xBldVec_batch, yBldVec_batch, TBldVec_batch)  # (i_bld_batch, i_Sim)
+
+                # check if there are NaN values
+                if np.isnan(IM_mat_Bld_batch).any():
+                    # find the indices of NaN values
+                    nan_indices = np.argwhere(np.isnan(IM_mat_Bld_batch))
+                    for idx in nan_indices:
+                        bld_idx = idx[0]
+                        sim_idx = idx[1]
+                        logger.error(f"Error: IM_mat_Bld contains NaN value for building {start_idx + bld_idx + 1} in simulation {sim_idx + 1}")
+                    raise ValueError(f"Error: IM_mat_Bld contains NaN values in batch {batch_idx + 1}")
+
+                IM_mat_Bld_list.append(IM_mat_Bld_batch)
+                
+                # Update progress bar
+                pbar.update(1)
+                pbar.set_postfix({
+                    'Buildings_Processed': f"{end_idx:,}/{total_buildings:,}",
+                    'Batch_Size': len(batch_BldInfo),
+                    'Memory_Usage': f"{len(IM_mat_Bld_list) * batch_size * 8 / 1024**2:.1f}MB"  # Rough estimate
+                })
+                
+                logger.debug(f"Batch {batch_idx + 1}/{num_batches} completed, processed {end_idx}/{total_buildings} buildings")
+
+        # Concatenate all batches
+        IM_mat_Bld = np.vstack(IM_mat_Bld_list)
+        logger.info(f"All batches processed successfully. Final shape: {IM_mat_Bld.shape}")
+
+        return IM_mat_Bld
+    
+    def _vectorized_period_interpolation(self, points_all: np.array, TBldVec_clipped: np.array, interpolators: dict, N_sim: int) -> np.array:
+        """
+        使用矢量化操作执行周期插值，显著提升性能
+        
+        Parameters:
+            points_all: numpy array - 所有建筑的坐标 (N_buildings, 2) [y, x]
+            TBldVec_clipped: numpy array - 限制后的建筑周期向量 (N_buildings,)
+            interpolators: dict - 周期对应的插值器字典 {period: interpolator}
+            N_sim: int - 模拟次数
+            
+        Returns:
+            IM_mat_Bld: numpy array - 插值结果 (N_buildings, N_sim)
+        """
+        logger.debug("Starting vectorized period interpolation")
+        N_buildings = len(TBldVec_clipped)
+        IM_mat_Bld = np.zeros((N_buildings, N_sim))
+        
+        # 处理边界情况：小于最小周期的建筑
+        mask_low = TBldVec_clipped <= self.Tvec[0]
+        if np.any(mask_low):
+            logger.debug(f"Processing {np.sum(mask_low)} buildings with T <= {self.Tvec[0]:.3f}")
+            interpolator = interpolators[self.Tvec[0]]
+            result_low = interpolator(points_all[mask_low])  # (N_low, N_sim)
+            IM_mat_Bld[mask_low, :] = result_low
+        
+        # 处理边界情况：大于最大周期的建筑
+        mask_high = TBldVec_clipped >= self.Tvec[-1]
+        if np.any(mask_high):
+            logger.debug(f"Processing {np.sum(mask_high)} buildings with T >= {self.Tvec[-1]:.3f}")
+            interpolator = interpolators[self.Tvec[-1]]
+            result_high = interpolator(points_all[mask_high])  # (N_high, N_sim)
+            IM_mat_Bld[mask_high, :] = result_high
+        
+        # 处理中间范围：需要周期线性插值的建筑
+        mask_middle = (TBldVec_clipped > self.Tvec[0]) & (TBldVec_clipped < self.Tvec[-1])
+        if np.any(mask_middle):
+            logger.debug(f"Processing {np.sum(mask_middle)} buildings with period interpolation")
+            
+            T_middle = TBldVec_clipped[mask_middle]
+            points_middle = points_all[mask_middle]
+            
+            # 找到包围周期的索引
+            T_indices = np.searchsorted(self.Tvec, T_middle)
+            T_idx_lower = np.clip(T_indices - 1, 0, len(self.Tvec) - 1)
+            T_idx_upper = np.clip(T_indices, 0, len(self.Tvec) - 1)
+            
+            # 处理恰好等于某个周期的情况
+            mask_exact = T_idx_lower == T_idx_upper
+            if np.any(mask_exact):
+                exact_indices = np.where(mask_middle)[0][mask_exact]
+                exact_T_idx = T_idx_lower[mask_exact]
+                for i, t_idx in enumerate(exact_T_idx):
+                    interpolator = interpolators[self.Tvec[t_idx]]
+                    result = interpolator(points_middle[mask_exact][i:i+1])
+                    IM_mat_Bld[exact_indices[i], :] = result[0]
+            
+            # 处理需要线性插值的情况
+            mask_interp = ~mask_exact
+            if np.any(mask_interp):
+                interp_indices = np.where(mask_middle)[0][mask_interp]
+                T_interp = T_middle[mask_interp]
+                points_interp = points_middle[mask_interp]
+                T_idx_lower_interp = T_idx_lower[mask_interp]
+                T_idx_upper_interp = T_idx_upper[mask_interp]
+                
+                # 计算权重
+                T_lower_vals = self.Tvec[T_idx_lower_interp]
+                T_upper_vals = self.Tvec[T_idx_upper_interp]
+                weight_upper = (T_interp - T_lower_vals) / (T_upper_vals - T_lower_vals)
+                weight_lower = 1.0 - weight_upper
+                
+                # 按周期组合处理，减少插值器调用次数
+                unique_pairs = np.unique(np.column_stack((T_idx_lower_interp, T_idx_upper_interp)), axis=0)
+                
+                for t_low_idx, t_high_idx in unique_pairs:
+                    # 找到使用这对周期的建筑
+                    pair_mask = (T_idx_lower_interp == t_low_idx) & (T_idx_upper_interp == t_high_idx)
+                    if not np.any(pair_mask):
+                        continue
+                        
+                    pair_indices = interp_indices[pair_mask]
+                    pair_points = points_interp[pair_mask]
+                    pair_weight_lower = weight_lower[pair_mask]
+                    pair_weight_upper = weight_upper[pair_mask]
+                    
+                    # 在两个周期上插值
+                    interpolator_lower = interpolators[self.Tvec[t_low_idx]]
+                    interpolator_upper = interpolators[self.Tvec[t_high_idx]]
+                    
+                    result_lower = interpolator_lower(pair_points)  # (N_pair, N_sim)
+                    result_upper = interpolator_upper(pair_points)  # (N_pair, N_sim)
+                    
+                    # 周期维度的线性插值
+                    result_combined = (pair_weight_lower[:, np.newaxis] * result_lower + 
+                                     pair_weight_upper[:, np.newaxis] * result_upper)
+                    
+                    IM_mat_Bld[pair_indices, :] = result_combined
+        
+        logger.debug("Vectorized period interpolation completed")
+        return IM_mat_Bld
+
+    def _InterpIMfromMesh_RegularGrid(self, BldInfo: list) -> np.array:
+        """
+        使用规则网格插值器进行IM插值，适用于规则网格的站点文件
+        这个方法比LinearNDInterpolator快得多，因为利用了网格的规则结构
+
+        Parameters:
+            BldInfo: list - 建筑信息列表，每个元素是包含'centroid'和'T'键的字典
+                   'centroid'是[lon, lat]列表，'T'是周期
+
+        Returns:
+            IM_mat_Bld: numpy array - 插值后的IM结果 (i_bld, i_Sim)
+        """
+        
+        logger.info(f"Starting regular grid interpolation for {len(BldInfo)} buildings")
+        
+        # 转换地理坐标到Web Mercator投影
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857")
+        xVec, yVec = transformer.transform(self.latVec, self.lonVec)
+        
+        N_ID = self.IM_mat.shape[0]
+        N_sim = self.IM_mat.shape[1]
+        N_T = self.IM_mat.shape[2]
+        
+        # 推断网格结构
+        # 从CreateMeshedSiteFile的逻辑可知，网格是按 row(lon), col(lat) 的顺序创建的
+        # 即外层循环是longitude (Nlon), 内层循环是latitude (Nlat)
+        unique_x = np.unique(xVec)
+        unique_y = np.unique(yVec)
+        
+        # 按照CreateMeshedSiteFile的逻辑排序
+        unique_x = np.sort(unique_x)
+        unique_y = np.sort(unique_y)
+        
+        Nlon = len(unique_x)  # 经度方向的网格数
+        Nlat = len(unique_y)  # 纬度方向的网格数
+        
+        logger.info(f"Grid structure: {Nlon} x {Nlat} = {Nlon * Nlat} points")
+        logger.info(f"Expected total points: {N_ID}")
+        
+        if Nlon * Nlat != N_ID:
+            logger.error(f"Grid structure mismatch: {Nlon} x {Nlat} = {Nlon * Nlat} ≠ {N_ID}")
+            raise ValueError("Grid is not regular or site ordering is incorrect")
+        
+        # 对于每个周期创建2D规则网格插值器
+        interpolators = {}
+        
+        for i_T, T in enumerate(self.Tvec):
+            logger.debug(f"Creating interpolator for period T={T:.3f}s")
+            
+            # 重塑IM数据为网格形状
+            # CreateMeshedSiteFile的循环顺序：for row in range(Nlon): for col in range(Nlat)
+            # 因此数据按照 (Nlon, Nlat) 的顺序存储，但需要转置为 (Nlat, Nlon) 给RegularGridInterpolator
+            grid_values = np.zeros((Nlat, Nlon, N_sim))
+            
+            # 重新排列数据到正确的网格位置
+            for idx in range(N_ID):
+                # 根据CreateMeshedSiteFile的逻辑，第idx个点对应的网格位置是：
+                row = idx // Nlat  # longitude index
+                col = idx % Nlat   # latitude index
+                
+                # 在grid_values中，第一个维度是latitude (y)，第二个维度是longitude (x)
+                grid_values[col, row, :] = self.IM_mat[idx, :, i_T]
+            
+            # 创建规则网格插值器
+            interpolators[T] = RegularGridInterpolator(
+                (unique_y, unique_x),  # 注意顺序：(y, x)
+                grid_values,
+                method='linear',
+                bounds_error=False,
+                fill_value=None  # 边界外使用最近邻
+            )
+        
+        logger.info("All interpolators created successfully")
+        
+        # 准备建筑数据
+        centroid_all = np.array([bld['centroid'] for bld in BldInfo])
+        TBldVec_all = np.array([bld['T'] for bld in BldInfo])
+        xBldVec_all, yBldVec_all = transformer.transform(centroid_all[:, 1], centroid_all[:, 0])
+        
+        # 检查建筑位置是否在网格范围内
+        x_min, x_max = np.min(unique_x), np.max(unique_x)
+        y_min, y_max = np.min(unique_y), np.max(unique_y)
+        
+        if (np.any(xBldVec_all < x_min) or np.any(xBldVec_all > x_max) or 
+            np.any(yBldVec_all < y_min) or np.any(yBldVec_all > y_max)):
+            logger.error("Some buildings are outside the grid range.")
+            raise ValueError("Error: Some buildings are outside the grid range of meshed sites")
+        
+        # 限制建筑周期在插值范围内
+        T_min, T_max = np.min(self.Tvec), np.max(self.Tvec)
+        TBldVec_clipped = np.clip(TBldVec_all, T_min, T_max)
+        
+        # 执行插值 - 使用矢量化操作
+        logger.info("Performing interpolation with vectorized operations...")
+        points_all = np.column_stack((yBldVec_all, xBldVec_all))  # (N_buildings, 2)
+        IM_mat_Bld = self._vectorized_period_interpolation(points_all, TBldVec_clipped, interpolators, N_sim)
+        
+        # 检查NaN值
         if np.isnan(IM_mat_Bld).any():
-            raise ValueError("Error: IM_mat_Bld contains NaN values")
-
+            nan_count = np.sum(np.isnan(IM_mat_Bld))
+            logger.error(f"Found {nan_count} NaN values in interpolation results")
+            raise ValueError("Error: IM_mat_Bld contains NaN values after interpolation")
+        
+        logger.info(f"Regular grid interpolation completed successfully. Final shape: {IM_mat_Bld.shape}")
         return IM_mat_Bld
     
     def Plot_IM_Spatial_folium(self, iTplot=1, iSim=None, BaseMap='Cartodb Positron'):
@@ -704,17 +986,21 @@ def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=N
 
     webbrowser.open_new('file://' + str(filename.resolve()))
 
-def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR):
+def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int = 500000):
     '''
     IM field simulation for buildings in a city. A series of earthquake events are generated and simulated.
+    
+    Parameters:
+        CityName: str - name of the city
+        OutputDir: Path - output directory for results
+        batch_size: int - number of buildings to process in each batch to avoid memory explosion
     '''
-    logger.info(f"Starting IM field simulation for city: {CityName}")
+    logger.info(f"Starting IM field simulation for city: {CityName} with batch size: {batch_size}")
     
     sim = SpatialIM()
     sim.PrepareCityBldData(CityName)
 
     # meshed site file
-    print(f"Creating meshed site file for {CityName}...")
     logger.info(f"Creating meshed site file for {CityName}")
     
     SiteFile = OutputDir / CityName / 'SiteFile.txt'
@@ -738,10 +1024,9 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR):
 
         sim.SetMeshedSiteFile(SiteFile)
 
-        sim.IMFieldSim(OutputDir / f'{CityName}/rup_id_{rup_id}/')
-
+        sim.IMFieldSim(OutputDir / f'{CityName}/rup_id_{rup_id}/')        
         # interpolate
-        sim.InterpIMfromMeshForCity() # numpy array (i_bld, i_Sim)
+        sim.InterpIMfromMeshForCity(batch_size=batch_size, use_regular_grid=True) # numpy array (i_bld, i_Sim)
 
     logger.info(f"IM field simulation completed for {CityName}")
     _MergeIMMatBldFiles(CityName, OutputDir=OutputDir)
@@ -832,6 +1117,6 @@ def get_all_IM_mat_Bld(CityName: str, IMsimDir=IM_SIM_DIR, IM_mat_Bld_FileName=I
 
     return rupid_2_iSim, all_IM_mat_Bld
 
-    
+
 
 
