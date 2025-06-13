@@ -13,6 +13,7 @@ from CNCityRisk import IMSim
 from CNCityRisk import RegionalLossSim
 from CNCityRisk import BldPSPA_ReprBld
 from CNCityRisk import Utilities
+from CNCityRisk import CreateRegionalMaps
 from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
 from CNCityRisk.Logger import init_root_logger
 init_root_logger()
@@ -30,7 +31,7 @@ import time
 logger = get_logger('Main')
 
 # The target cities 
-CityName = '重庆'
+CityName = '武汉'
 
 if __name__ == '__main__':    
 
@@ -76,9 +77,9 @@ if __name__ == '__main__':
         
     # IM field simulation
     if 0:
-        IMSim.CityBldIMSimFromEvents(CityName)
+        IMSim.CityBldIMSimFromEvents(CityName, overwrite=True)
     if 0:
-        IMSim.Plot_IM_Spatial_City(CityName, i_rup=24)
+        IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
     if 0:
@@ -87,8 +88,10 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='DS_Struct', OutputDir=RegionalLossSim.RESULTDIR/CityName)
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
-    # Figures: plot regional seismic loss
+    # Figures: create maps for displaying building losses
     if 0:
-        RegionalLossSim.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
+        CreateRegionalMaps.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
+    if 1:
+        CreateRegionalMaps.create_maps_median_IM(CityName)
 
     

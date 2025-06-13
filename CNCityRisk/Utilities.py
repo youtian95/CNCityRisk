@@ -17,6 +17,7 @@ import BldStructPred
 import numpy as np
 from packaging import version
 import re
+from typing import Optional, Tuple, List, Dict, Any
 
 
 # API key
@@ -687,7 +688,7 @@ class DEMFetcher:
         row, col = DEMcontent.index(longitude, latitude)
         elevation = DEMcontent.read(1)[row, col]
         return elevation
-
+ 
 def Calc4CornersEQRupt(W_km, length_km, lat_Hypo, lon_Hypo, RuptureNormal_x, RuptureNormal_y, RuptureNormal_z) -> list:
     """
     Calculate the four corners of the rupture rectangle
@@ -710,11 +711,16 @@ def Calc4CornersEQRupt(W_km, length_km, lat_Hypo, lon_Hypo, RuptureNormal_x, Rup
     half_length = length_km / 2
     half_width = W_km / 2 * math.cos(math.radians(dip))
 
+    # vector unit
+    unit_vec_strike = np.array([math.cos(math.radians(-strike+90)), math.sin(math.radians(-strike+90))])
+    unit_vec_dip = np.array([math.cos(math.radians(-strike)), math.sin(math.radians(-strike))])
+
     # Calculate the coordinates of the four corners
     corners = []
     for dx, dy in [(-half_length, -half_width), (half_length, -half_width), (half_length, half_width), (-half_length, half_width)]:
-        d_lon = dx * math.cos(math.radians(strike)) - dy * math.sin(math.radians(strike))
-        d_lat = dx * math.sin(math.radians(strike)) + dy * math.cos(math.radians(strike))
+        d_vec = dx*unit_vec_strike + dy*unit_vec_dip
+        d_lon = d_vec[0]
+        d_lat = d_vec[1]
         # from UTM to WGS84
         d_lon = d_lon *1000 / math.cos(math.radians(lat_Hypo)) / R_EARTH_M * 180 / math.pi
         d_lat = d_lat *1000 / R_EARTH_M * 180 / math.pi
@@ -830,14 +836,106 @@ def CalcRuptureNormal(strike, dip):
         RuptureNormal_z: float - z component of the rupture normal vector. Up
     """
 
-    strike = math.radians(strike)
-    dip = math.radians(dip)
-
-    RuptureNormal_x = math.cos(strike) * math.sin(dip)
-    RuptureNormal_y = math.sin(strike) * math.sin(dip)
-    RuptureNormal_z = math.cos(dip)
+    fault_geometry = convert_fault_geometry_StrikeDip2RuptureNormal(strike, dip)
+    RuptureNormal_x = fault_geometry['normal_vector'][0]
+    RuptureNormal_y = fault_geometry['normal_vector'][1]
+    RuptureNormal_z = fault_geometry['normal_vector'][2]
 
     return RuptureNormal_x, RuptureNormal_y, RuptureNormal_z
+
+def convert_fault_geometry_StrikeDip2RuptureNormal(strike: float, dip: float) -> Dict[str, np.ndarray]:
+    """
+    Convert fault strike and dip to geometric vectors
+        Args:
+        strike: Fault strike angle (degrees, 0=North, clockwise positive)
+        dip: Fault dip angle (degrees, 90=vertical)
+        
+    Returns:
+        Dictionary containing:
+            - 'strike_vector': Unit vector along strike direction
+            - 'dip_vector': Unit vector along dip direction  
+            - 'normal_vector': Unit vector normal to fault plane
+    """
+    # Convert to radians
+    strike_rad = np.radians(strike)
+    dip_rad = np.radians(dip)
+    
+    # Strike vector (along fault length, horizontal)
+    # Strike = 0° points North, increases clockwise
+    strike_vector = np.array([
+        np.cos(np.pi/2 - strike_rad),   # East component
+        np.sin(np.pi/2 - strike_rad),   # North component  
+        0.0                   # Vertical component
+    ])
+    
+    # Dip vector (down-dip direction)
+    # Points in the direction of maximum dip
+    dip_azimuth = strike + 90  # Dip direction is perpendicular to strike
+    dip_azimuth_rad = np.radians(dip_azimuth)
+    
+    dip_unitvector = np.array([
+        np.cos(-dip_azimuth_rad+np.pi/2) * np.cos(dip_rad),  # East component
+        np.sin(-dip_azimuth_rad+np.pi/2) * np.cos(dip_rad),  # North component
+        -np.sin(dip_rad)                            # Vertical component (negative = downward)        
+    ])
+    
+    # Normal vector to fault plane (rupture normal)
+    # Pointing out of the fault surface
+    normal_vector =  - np.cross(strike_vector, dip_unitvector)
+    normal_vector = normal_vector / np.linalg.norm(normal_vector)  # Normalize
+    
+    return {
+        'strike_vector': strike_vector,
+        'dip_vector': dip_unitvector,
+        'normal_vector': normal_vector
+    }
+
+def convert_fault_geometry_RuptureNormal2StrikeDip(rupture_normal: np.ndarray) -> Dict[str, float]:
+    """
+    Convert rupture normal vector to fault strike and dip angles
+    
+    Args:
+        rupture_normal: Rupture normal vector as 3D numpy array [x, y, z]
+        
+    Returns:
+        Dictionary containing:
+            - 'strike': Fault strike angle (degrees, 0=North, clockwise positive)
+            - 'dip': Fault dip angle (degrees, 90=vertical)
+    """
+    if rupture_normal.shape != (3,):
+        raise ValueError("rupture_normal must be a 3D numpy array")
+    
+    # Normalize the rupture normal vector
+    rupture_normal = rupture_normal / np.linalg.norm(rupture_normal)
+    
+    # Calculate dip from vertical component of normal
+    dip_rad = np.pi/2 - np.arcsin(abs(rupture_normal[2]))
+    dip = np.degrees(dip_rad)
+    
+    # Calculate strike from horizontal components
+    horizontal_normal = rupture_normal[:2]
+    if np.linalg.norm(horizontal_normal) > 1e-10:
+        # Normalize horizontal component
+        horizontal_normal = horizontal_normal / np.linalg.norm(horizontal_normal)
+        horizontal_normal_rad = np.arctan2(horizontal_normal[1], horizontal_normal[0])  # atan2(y, x)
+        # Strike is perpendicular to horizontal normal, and 90 degrees counter-clockwise from it
+        strike_rad = horizontal_normal_rad + np.pi / 2.0
+        # Adjust strike to be clockwise from North
+        strike_rad = np.pi / 2.0 - strike_rad 
+    else:
+        # For vertical fault, strike can be arbitrary (set to 0)
+        strike_rad = 0.0
+
+    # Ensure positive angle and in [0, 360)
+    strike = np.degrees(strike_rad)
+    strike = strike % 360.0
+    if strike < 0:
+        strike += 360.0
+
+    return {
+        'strike': strike,
+        'dip': dip
+    }
 
 def RuptureNormal2StrikeDip(RuptureNormal_x, RuptureNormal_y, RuptureNormal_z):
     """
@@ -853,9 +951,9 @@ def RuptureNormal2StrikeDip(RuptureNormal_x, RuptureNormal_y, RuptureNormal_z):
         dip: float - dip angle in degrees. The dip is the steepest angle of descent of the fault plane relative to a horizontal plane; it is measured in degrees [0,90]
     """
 
-    one = math.sqrt(RuptureNormal_x**2 + RuptureNormal_y**2 + RuptureNormal_z**2)
-    strike = 90 - math.degrees(math.atan2(RuptureNormal_y/one, RuptureNormal_x/one))
-    dip = math.degrees(math.acos(RuptureNormal_z/one))
+    fault = convert_fault_geometry_RuptureNormal2StrikeDip(np.array([RuptureNormal_x, RuptureNormal_y, RuptureNormal_z]))
+    strike = fault['strike']
+    dip = fault['dip']
 
     return strike, dip
 

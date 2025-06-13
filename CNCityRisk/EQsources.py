@@ -106,6 +106,7 @@ def default_W_km(mag: float, lambda_degree: float) -> float:
         # normal
         W_km = 10**(-1.14+0.35*mag)
     return W_km
+
 def default_length_km(mag: float, lambda_degree: float = None) -> float:
     # Wells D L, Coppersmith K J. New empirical relationships among magnitude, rupture length, rupture width, rupture area, and surface displacement. Bulletin of the Seismological Society of America, 1994, 84(4): 974-1002.
     if lambda_degree is None:
@@ -127,6 +128,7 @@ def default_length_km(mag: float, lambda_degree: float = None) -> float:
             b = 0.50
     length_km = 10.0**(a + b*mag)
     return length_km
+
 def default_Zhyp_km(mag: float, lambda_degree: float) -> float:
     # J Kaklamanos, L G Baise, D M Boore. Estimating Unknown Input Parameters when Implementing the NGA Ground-Motion Prediction Equations in Engineering Practice. Earthquake Spectra, 2011, 27(4): 1219-1235.
     if abs(lambda_degree) < 30:

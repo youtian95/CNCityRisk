@@ -219,7 +219,7 @@ class SpatialIM():
             EQsources.default_Zhyp_km(M, lambda_degree)
             logger.debug(f"Using default hypocenter depth: {Zhyp_km}km")
         if length_km == 999:
-            length_km = EQsources.default_length_km(W_km, lambda_degree)
+            length_km = EQsources.default_length_km(M, lambda_degree)
             logger.debug(f"Using default rupture length: {length_km}km")
 
         if EQSourceFile is not None:
@@ -744,7 +744,7 @@ class SpatialIM():
 
         plt.show()
 
-def _Read_IMSim_results(IMresultsDir: Path) -> Tuple[np.array, np.array]:
+def _Read_IMSim_results(IMresultsDir: Path, median:bool = False) -> Tuple[np.array, np.array]:
     """
     Read IM simulation results
 
@@ -754,7 +754,11 @@ def _Read_IMSim_results(IMresultsDir: Path) -> Tuple[np.array, np.array]:
     """
 
     # Get list of files matching the pattern
-    listing = list(Path(IMresultsDir).glob("IM sim with period*.txt"))
+    if median:
+        listing = list(Path(IMresultsDir).glob("IM median with period*.txt"))
+    else:
+        listing = list(Path(IMresultsDir).glob("IM sim with period*.txt"))
+
     Tvec = np.array([float(str(file.stem).split("period")[1]) for file in listing])
     
     # Sort by period
@@ -907,7 +911,7 @@ def Add_City_IMfield_to_FoliumMap(m: folium.Map, CityName: str, i_rup: int = 0, 
 
     Add_IMfield_to_FoliumMap(m, lonVec, latVec, IM_mat[:, iSim, iTplot - 1], caption=f'Spectral Acceleration (Sa) at T={Tvec[iTplot-1]:.2f} seconds (g)')
 
-def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = None, BaseMap='Cartodb Positron', SaveFigDir: Path = None):
+def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = None, median:bool = False, BaseMap='Cartodb Positron', SaveFigDir: Path = None, FigFileName: str = None, PlotNow: bool = True) -> Tuple[Path, float]:
     '''
     Plot IM simulation results using folium for a city
 
@@ -916,8 +920,13 @@ def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = 
         i_rup: int - row index of the rupture to plot. Start from 0
         iTplot: int - index of the period to plot. Start from 1
         iSim: int - index of the simulation to plot. None for random
+        median: bool - if True, plot the median IM results
         BaseMap: str - base map to use. None for no basemap, 'Cartodb Positron' for Cartodb Positron, 'Amap' for Amap
         SaveFigDir: Path - path to save the figure
+
+    returns:
+        filepath: Path - path to the saved HTML file
+        Sa_period: float - period of the Sa to plot
     '''
     rup_df = EQsources.ReadCityRuptures(CityName)
     rup_id = rup_df.iloc[i_rup]['rup_id']
@@ -927,14 +936,19 @@ def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = 
     IDvec, lonVec, latVec = Utilities.ReadIDofMeshedSiteFile(sitefile)
 
     # read Tvec, IM_mat
-    IM_mat, Tvec = _Read_IMSim_results(IMresultsDir)
+    IM_mat, Tvec = _Read_IMSim_results(IMresultsDir, median=median)
 
     if SaveFigDir is None:
         SaveFigDir = IMresultsDir
 
-    Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=iTplot, iSim=iSim, BaseMap=BaseMap, SaveFigDir=SaveFigDir)
+    if median:
+        iSim = 0  # median is always the first simulation
 
-def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=None, BaseMap='Cartodb Positron', SaveFigDir: Path = None):
+    filepath, Sa_period = Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=iTplot, iSim=iSim, BaseMap=BaseMap, SaveFigDir=SaveFigDir, FigFileName=FigFileName, PlotNow=PlotNow)
+
+    return filepath, Sa_period
+
+def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=None, BaseMap='Cartodb Positron', SaveFigDir: Path = None, FigFileName: str = None, PlotNow: bool = True) -> Tuple[Path, float]:
     """
     Plot IM simulation results using folium
 
@@ -948,6 +962,10 @@ def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=N
         iSim: int - index of the simulation to plot
         BaseMap: str - base map to use. None for no basemap, 'Cartodb Positron' for Cartodb Positron, 'Amap' for Amap
         SaveFigDir: Path - path to save the figure. None means the same directory as IMresultsDir
+    
+    Returns:
+        filepath: Path - path to the saved HTML file
+        Sa_period: float - period of the Sa to plot
     """
     if iSim is None:
         iSim = np.random.randint(IM_mat.shape[1])
@@ -981,12 +999,17 @@ def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=N
     # Save the map to an HTML file
     if SaveFigDir is None:
         SaveFigDir = IMresultsDir
-    filename = SaveFigDir / f'IM_Spatial_folium_Sim{iSim}_Sa{Tvec[iTplot-1]:.2f}.html'
+    if FigFileName is None:
+        FigFileName = f'IM_Spatial_folium_Sim{iSim}_Sa{Tvec[iTplot-1]:.2f}.html'
+    filename = SaveFigDir / FigFileName
     m.save(filename)
 
-    webbrowser.open_new('file://' + str(filename.resolve()))
+    if PlotNow:
+        webbrowser.open_new('file://' + str(filename.resolve()))
+    
+    return filename, Tvec[iTplot-1]
 
-def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int = 500000):
+def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int = 500000, overwrite: bool = False):
     '''
     IM field simulation for buildings in a city. A series of earthquake events are generated and simulated.
     
@@ -1015,6 +1038,7 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int 
 
     # Loop over each rupture
     for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Simulating IM fields...'):
+
         rup_id = row['rup_id']
         logger.debug(f"Processing rupture {i+1}/{len(rup_df)}: {rup_id} (M={row['mag']})")
 
@@ -1024,9 +1048,9 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int 
 
         sim.SetMeshedSiteFile(SiteFile)
 
-        sim.IMFieldSim(OutputDir / f'{CityName}/rup_id_{rup_id}/')        
+        sim.IMFieldSim(OutputDir / f'{CityName}/rup_id_{rup_id}/', overwrite=overwrite)        
         # interpolate
-        sim.InterpIMfromMeshForCity(batch_size=batch_size, use_regular_grid=True) # numpy array (i_bld, i_Sim)
+        sim.InterpIMfromMeshForCity(batch_size=batch_size, use_regular_grid=True, overwrite=overwrite) # numpy array (i_bld, i_Sim)
 
     logger.info(f"IM field simulation completed for {CityName}")
     _MergeIMMatBldFiles(CityName, OutputDir=OutputDir)
