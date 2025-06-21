@@ -60,13 +60,17 @@ def plot_earthquake_events_folium(CityName: str, BaseMap='Cartodb Positron', opa
     webbrowser.open_new( 'file://' + str((results_dir / 'ruptures.html').resolve()) )
     logger.info(f"Earthquake events plotting completed for city: {CityName}")
 
-def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
+def Create_a_Rupture_Polygon(m: folium.Map = None, rupture: pd.Series = None) -> tuple:
     '''
     Create a rupture polygon on the map
 
     Parameters:
         m: folium.Map
         rupture: pd.Series. columns: mag, rake, centroid_lat, centroid_lon, strike, dip, centroid_depth, W_km (optional), length_km (optional)
+
+    Returns:
+        m: folium.Map with the rupture polygon added
+        latlon_polygon: list of tuples (lat, lon) representing the corners of the rupture polygon
     '''
     if 'i_rup' not in rupture.index:
         i_rup = None
@@ -91,7 +95,10 @@ def Create_a_Rupture_Polygon(m: folium.Map, rupture: pd.Series):
     latlon_polygon = Utilities.Calc4CornersEQRupt(W_km, length_km, lat_Hypo, lon_Hypo, RuptureNormal_x, RuptureNormal_y, RuptureNormal_z)
     popup_info = f'i_rup: {i_rup}<br>Magnitude: {mag}<br>Strike: {strike:.1f}<br>Dip: {dip:.1f}<br>Rake: {rake:.1f}<br>Depth: {centroid_depth:.1f}<br>Length: {length_km:.1f} km<br>Width: {W_km:.1f} km'
     latlon_polygon = [(lat, lon) for lat, lon in latlon_polygon]
-    folium.Polygon(latlon_polygon, color='black', weight=1, fill=True, fill_color='red', fill_opacity=0.5, popup=popup_info).add_to(m)
+    if m is not None:
+        folium.Polygon(latlon_polygon, color='black', weight=1, fill=True, fill_color='red', fill_opacity=0.5, popup=popup_info).add_to(m)
+
+    return m, latlon_polygon
 
 # uknown parameters for EQ sources
 def default_W_km(mag: float, lambda_degree: float) -> float:   

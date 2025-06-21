@@ -275,10 +275,17 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
         DistrictName (str): 区域名称
         ResultsDir (str): 结果目录
         LossType (str): 损失类型
-        i_rup (int): 震源索引
+        i_rup (int or None): 震源索引，如果为None则处理所有震源
         iSim (int): 模拟索引, 从0开始
     Returns:
-        geojson_data (str): GeoJSON数据
+        geojson_data (str): GeoJSON格式的字符串数据，包含以下内容：
+            - geometry: 建筑物的几何形状信息（点、多边形等）
+            - loss_value: 指定模拟场景下建筑物的损失值
+                如果i_rup不为None: 单个数值（单个rupture的损失值）
+                如果i_rup为None: 数组（所有rupture的损失值列表）
+            - structure: 建筑物结构类型
+            - story: 建筑物层数
+            - DistrictName: 建筑物所属区域名称
     """
     # 读取建筑数据
     if DistrictName is not None:
@@ -294,9 +301,6 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
     
     # 读取震源信息
     rup_df = EQsources.ReadCityRuptures(CityName)
-    rupid = rup_df.iloc[i_rup]['rup_id']
-    iSim_list = rupid_2_iSim[rupid]['iSim']
-    iSim_allRup = iSim_list[iSim]
     
     # 创建结果GeoDataFrame
     result_gdf = Bld_gdf.copy()
@@ -305,12 +309,37 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
     with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
         # 先将数据加载到内存一次，避免在循环中重复访问
         f_in_memory = Utilities.load_h5py_group_to_memory(f)
-        loss_values = []
-        for i in result_gdf.index:
-            loss_sim = f_in_memory[f'BldID_{i}'][:]
-            loss_values.append(int(loss_sim[iSim_allRup]))
-    
-    result_gdf['loss_value'] = loss_values
+        
+        if i_rup is None:
+            # 处理所有rupture
+            loss_values_all_ruptures = []
+            
+            for bld_idx in result_gdf.index:
+                loss_sim = f_in_memory[f'BldID_{bld_idx}'][:]
+                bld_losses = []
+                
+                # 遍历所有rupture
+                for rup_idx in range(len(rup_df)):
+                    rupid = rup_df.iloc[rup_idx]['rup_id']
+                    iSim_list = rupid_2_iSim[rupid]['iSim']
+                    iSim_allRup = iSim_list[iSim]
+                    bld_losses.append(int(loss_sim[iSim_allRup]))
+                
+                loss_values_all_ruptures.append(bld_losses)
+            
+            result_gdf['loss_value'] = loss_values_all_ruptures
+        else:
+            # 处理单个rupture（原来的逻辑）
+            rupid = rup_df.iloc[i_rup]['rup_id']
+            iSim_list = rupid_2_iSim[rupid]['iSim']
+            iSim_allRup = iSim_list[iSim]
+            
+            loss_values = []
+            for bld_idx in result_gdf.index:
+                loss_sim = f_in_memory[f'BldID_{bld_idx}'][:]
+                loss_values.append(int(loss_sim[iSim_allRup]))
+            
+            result_gdf['loss_value'] = loss_values
     
     # 只保留必要的列
     keep_columns = ['geometry', 'loss_value', 'structure', 'story', 'DistrictName']

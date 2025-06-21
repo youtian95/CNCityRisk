@@ -89,9 +89,7 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
     # Figures: create maps for displaying building losses
-    if 0:
-        CreateRegionalMaps.create_maps_city_regional_losses(CityName, LossType='DS_Struct', iSim = 0)
     if 1:
-        CreateRegionalMaps.create_maps_median_IM(CityName)
-
-    
+        CreateRegionalMaps.create_mapdata_median_IM(CityName)
+    if 0:
+        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
