@@ -9,7 +9,6 @@
   ```
   [API]
   api_key_OpenTopography = <YOUR API KEY>
-  api_key_TDT = <YOUR API KEY>
   ```
 - `README.md`：项目简介和文件夹结构说明（即本文件）。
 - `Main.py`：主要分析步骤。

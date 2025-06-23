@@ -3,6 +3,7 @@ from . import Utilities
 from . import BldPSPA_ReprBld
 from . import EQsources
 from . import IMSim
+from . import Logger
 
 from pathlib import Path
 import pandas as pd
@@ -16,9 +17,13 @@ import dask.array as da
 from typing import Union
 import matplotlib.pyplot as plt
 import py7zr
+import json
 
 RESULTDIR = Path(__file__).resolve().parent / 'results/RegionalLossSim/'
 MAP_ZIP = RESULTDIR / 'maps.7z'
+
+# Create module logger
+logger = Logger.get_logger('RegionalLossSim')
 
 def simulate_regional_losses(IM_sim: Union[np.ndarray, da.Array], Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize = 100000) -> None:
     '''
@@ -35,21 +40,30 @@ def simulate_regional_losses(IM_sim: Union[np.ndarray, da.Array], Bld_gdf: gpd.G
         BldLoss_{losstype}.hdf5: HDF5 file containing the simulated regional losses.
             BldID_i: Dataset containing the simulated loss values for building i. Each element is a list of Nsim values.
     '''
+    logger.info(f"Starting regional loss simulation for {len(Bld_gdf)} buildings with loss type: {losstype}")
+    
     # check if the losstype is valid
     if losstype not in BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2:
-        raise ValueError(f"losstype must be one of {BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2}.")
+        error_msg = f"losstype must be one of {BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2}."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     
     # Get the full path of the OutputDir
     OutputDir = Path(OutputDir).resolve()
     if not OutputDir.exists():
         OutputDir.mkdir(parents=True)
+        logger.info(f"Created output directory: {OutputDir}")
 
     # Read the table
     T = Bld_gdf
 
     # check if the row number of IM_sim is equal to the row number of T
     if len(IM_sim) != len(T):
-        raise ValueError("The number of rows in IM_sim must be equal to the number of rows in BldsFile.")
+        error_msg = "The number of rows in IM_sim must be equal to the number of rows in BldsFile."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    logger.info(f"Processing {len(T)} buildings in chunks of {ChunkSize}")
     
     # Progress bar
     with tqdm(total=len(T), desc="Simulating regional seismic losses...") as pbar:
@@ -82,8 +96,8 @@ def simulate_regional_losses(IM_sim: Union[np.ndarray, da.Array], Bld_gdf: gpd.G
                     # since each element in sim_loss has only one value, flatten it
                     sim_loss = list(np.array(sim_loss).flatten())
                     # sim_loss has only one row. convert it to N_same_ReprBldID_PSPA x N_sim_1_bld
-                    sim_loss = [sim_loss[i*N_sim_1_bld:(i+1)*N_sim_1_bld] for i in range(N_same_ReprBldID_PSPA)]
-
+                    sim_loss = [sim_loss[i*N_sim_1_bld:(i+1)*N_sim_1_bld] for i in range(N_same_ReprBldID_PSPA)]                    
+                    
                     # save the results
                     for i, idx_i in enumerate(idx):
                         if losstype in BldPSPA_ReprBld.LossTypes1:
@@ -93,7 +107,9 @@ def simulate_regional_losses(IM_sim: Union[np.ndarray, da.Array], Bld_gdf: gpd.G
                         else:
                             f.create_dataset(f'BldID_{idx_i}', data=sim_loss[i], dtype='float32')
                     pbar.update(len(idx))
-
+    
+    output_file = OutputDir / f'BldLoss_{losstype}.hdf5'
+    logger.info(f"Regional loss simulation completed. Results saved to: {output_file}")
 
 
 def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: int = 0, iSim: int = None, LossDataInMemory = None):
@@ -113,16 +129,20 @@ def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, L
             (N_DS x N_sim)
                 if LossType is 'DS_Struct' ..., N_DS = 5 (damage states). Each element is the numbers of the building to be in the corresponding damage state.
                 if LossType is 'RepairCost_Total' ..., N_DS = 1. Each element is a total repair cost.
-        total_loss_iSim (np.ndarray): regional total losses for the iSim-th simulation. (N_DS)
+        total_loss_iSim (np.ndarray): regional total losses for the iSim-th simulation. 
+            (N_DS)        
         percentiles_iSim (np.ndarray): Percentiles of the iSim-th simulation.
             (N_DS)
                 if LossType is 'DS_Struct' ..., N_DS = 5 (damage states). 
                 if LossType is 'RepairCost_Total' ..., N_DS = 1.
     '''
+    logger.info(f'Calculating regional loss statistics for {CityName}, rupture {i_rup}, loss type: {LossType}')
+    
     print(f'Calculating statistics of regional losses...')
-
+    
     Bld_gdf = Utilities.get_CityBldData(CityName)
     N_bld = len(Bld_gdf)
+    logger.info(f'Processing {N_bld} buildings for city: {CityName}')
 
     ResultsDir = Path(ResultsDir).resolve()
 
@@ -202,16 +222,17 @@ def plot_CDF_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossTyp
     '''
     plot the cumulative distribution function of total regional seismic losses.
     '''
+    logger.info(f'Plotting CDF for regional losses: {CityName}, rupture {i_rup}, loss type: {LossType}')
     
     if SavePath is None:
-        SavePath = ResultsDir / f'CDF_{CityName}_{LossType}_{i_rup}_{iSim}.jpg'
-
+        SavePath = ResultsDir / f'CDF_{CityName}_{LossType}_{i_rup}_{iSim}.jpg'    
     # Check if the file already exists in the archive
     if MAP_ZIP.exists():
         with py7zr.SevenZipFile(MAP_ZIP, 'r') as archive:
             existing_files = archive.getnames()
             if SavePath.name in existing_files:
                 if not Overwrite:
+                    logger.info(f'CDF plot {SavePath.name} already exists in archive, skipping')
                     print(f'{SavePath.name} already exists in the archive. Skipping...')                    
                     return None
 
@@ -287,6 +308,8 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
             - story: 建筑物层数
             - DistrictName: 建筑物所属区域名称
     """
+    logger.info(f'Creating GeoJSON for regional losses: {CityName}, district: {DistrictName}, loss type: {LossType}')
+    
     # 读取建筑数据
     if DistrictName is not None:
         Bld_gdf = Utilities.get_DistrictBldData(CityName, DistrictName=DistrictName)
@@ -349,4 +372,228 @@ def create_geojson_regional_losses(CityName, DistrictName=None, ResultsDir=RESUL
     geojson_data = result_gdf.to_json()
     
     return geojson_data
+
+def create_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, OutputDir: str = None, LossType: str = 'DS_Struct', iSim: int = 0) -> str:
+    '''
+    生成某城市所有地震事件的地震损失统计信息JSON文件
+    
+    该函数遍历指定城市的所有地震事件，调用get_statistics_regional_losses函数获取每个地震事件的
+    损失统计信息，并将结果保存为结构化的JSON文件。
+
+    Parameters:
+        CityName (str): 城市名称
+        ResultsDir (str): 读取损失数据的目录路径，默认为RESULTDIR
+        OutputDir (str): 保存统计结果JSON文件的目录路径，如果为None则使用ResultsDir
+        LossType (str): 损失类型，默认为'DS_Struct'
+            - 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen': 结构损伤状态
+            - 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen', 
+              'RepairCost_NonStruct_AccelSen': 修复成本
+            - 'RepairTime', 'RecoveryTime', 'FunctionLossTime': 时间损失
+        iSim (int): 指定模拟索引，默认为0。如果指定震源的模拟数量不足，将自动使用第0个模拟
+
+    Returns:
+        str: 保存的JSON文件路径
+
+    生成的JSON文件结构:
+        {
+            "CityName": "城市名称",
+            "LossType": "损失类型",
+            "generated_at": "生成时间戳 (ISO格式)",
+            "total_earthquakes": "地震事件总数 (int)",
+            "earthquake_events": [
+                {
+                    "i_rup": "震源索引 (int)",
+                    "rup_id": "震源ID (str)",
+                    "earthquake_info": {
+                        "magnitude": "震级 (float)",
+                        "centroid_lat": "震中纬度 (float)",
+                        "centroid_lon": "震中经度 (float)", 
+                        "hypo_depth": "震源深度 (float)",
+                        "strike": "走向角 (float)",
+                        "dip": "倾角 (float)",
+                        "rake": "滑动角 (float)",
+                        "trt": "构造类型 (str)",
+                        "source_id": "震源ID (str)"
+                    },
+                    "simulation_info": {
+                        "total_simulations": "该震源的总模拟次数 (int)",
+                        "selected_iSim": "选择的模拟索引 (int)",
+                        "simulation_indices": "所有模拟索引列表 (list[int])"
+                    },
+                    "loss_statistics": {
+                        "total_loss_sim": "所有模拟的损失分布 (N_DS x N_sim 数组)",
+                        "total_loss_iSim": "指定模拟的总损失 (N_DS 数组)",
+                        "percentiles_iSim": "指定模拟在分布中的百分位数 (N_DS 数组)",
+                        "damage_state_names": "损伤状态名称列表 (仅损伤状态类型)",
+                        "loss_description": "损失描述 (str)"
+                    }
+                }
+            ],
+            "summary": {
+                "successful_events": "成功处理的事件数 (int)",
+                "failed_events": "处理失败的事件数 (int)",
+                "success_rate": "成功率 (float, 0-1)"
+            }
+        }
+
+    损失统计数据说明:
+        - 对于损伤状态类型 (DS_*):
+            * N_DS = 5 (对应5个损伤状态: 'DS0', 'DS1', 'DS2', 'DS3', 'DS4')
+            * total_loss_sim[i,j]: 第j次模拟中处于第i个损伤状态的建筑物数量
+            * total_loss_iSim[i]: 指定模拟中处于第i个损伤状态的建筑物数量
+            * percentiles_iSim[i]: 指定模拟中第i个损伤状态建筑数量在所有模拟中的百分位数
+        
+        - 对于连续损失类型 (RepairCost_*, RepairTime等):
+            * N_DS = 1
+            * total_loss_sim[0,j]: 第j次模拟的总损失值
+            * total_loss_iSim[0]: 指定模拟的总损失值
+            * percentiles_iSim[0]: 指定模拟的总损失值在所有模拟中的百分位数
+
+    错误处理:
+        - 如果某个地震事件处理失败，会在结果中记录错误信息而不是终止整个过程
+        - 错误事件包含基本的地震信息和错误描述
+        - 最终统计中会显示成功和失败的事件数量    
+    
+    文件保存位置:
+        {OutputDir}/RegionalLossStatistics/{CityName}/RegionalLossStatistics_{LossType}.json
+        如果OutputDir为None，则保存到{ResultsDir}/RegionalLossStatistics/{CityName}/RegionalLossStatistics_{LossType}.json
+
+    使用示例:
+        # 生成武汉市结构损伤状态统计，保存到默认位置
+        file_path = create_statistics_regional_losses('Wuhan', LossType='DS_Struct')
+        
+        # 生成总修复成本统计，指定输出目录
+        file_path = create_statistics_regional_losses('Wuhan', ResultsDir='/path/to/results', OutputDir='/path/to/output', LossType='RepairCost_Total', iSim=0)    
+    '''
+    logger.info(f'Starting regional loss statistics creation for {CityName}, loss type: {LossType}')
+    
+    # 设置输入和输出目录
+    ResultsDir = Path(ResultsDir).resolve()
+    if OutputDir is None:
+        OutputDir = ResultsDir
+    else:
+        OutputDir = Path(OutputDir).resolve()
+
+    output_file = OutputDir / 'RegionalLossStatistics' / CityName / f'RegionalLossStatistics_{LossType}.json'
+    logger.info(f'Reading loss data from: {ResultsDir}')
+    logger.info(f'Saving statistics to: {output_file}')
+    
+    # 确保输出目录存在
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    # 读取地震事件数据
+    rup_df = EQsources.ReadCityRuptures(CityName)
+    logger.info(f'Found {len(rup_df)} earthquake events for {CityName}')
+    
+    # 读取rupture到模拟索引的映射
+    rupid_2_iSim = pd.read_csv(IMSim.IM_SIM_DIR / CityName / IMSim.RUPID_2_ISIM_FILENAME, index_col=0, header=0, dtype={0: str})
+    rupid_2_iSim['iSim'] = rupid_2_iSim['iSim'].apply(
+        lambda x: list(map(int, x.strip('[]').split())) if isinstance(x, str) else x)
+    rupid_2_iSim = rupid_2_iSim.to_dict(orient='index')
+    # 预加载损失数据到内存以提高效率
+    with h5py.File(ResultsDir / CityName / f'BldLoss_{LossType}.hdf5', 'r') as f:
+        LossDataInMemory = Utilities.load_h5py_group_to_memory(f)
+    logger.info(f'Loss data preloaded into memory for efficient processing')
+    
+    # 收集所有地震事件的统计信息
+    all_statistics = {
+        'CityName': CityName,
+        'LossType': LossType,
+        'generated_at': pd.Timestamp.now().isoformat(),
+        'total_earthquakes': len(rup_df),
+        'earthquake_events': []
+    }
+    
+    # 遍历所有地震事件
+    for i_rup in tqdm(range(len(rup_df)), desc="Processing earthquake events"):
+        rup_data = rup_df.iloc[i_rup]
+        rupid = rup_data['rup_id']
+        
+        # 获取该地震事件的模拟索引列表
+        iSim_list = rupid_2_iSim[rupid]['iSim']
+        n_simulations = len(iSim_list)
+        
+        # 如果未指定iSim，使用第0个模拟
+        current_iSim = iSim if iSim is not None else 0
+        if current_iSim >= n_simulations:
+            print(f"Warning: iSim {current_iSim} exceeds available simulations ({n_simulations}) for rupture {rupid}. Using iSim=0.")
+            current_iSim = 0
+        
+        try:
+            # 调用get_statistics_regional_losses获取统计信息
+            total_loss_sim, total_loss_iSim, percentiles_iSim = get_statistics_regional_losses(
+                CityName=CityName,
+                ResultsDir=ResultsDir,
+                LossType=LossType,
+                i_rup=i_rup,
+                iSim=current_iSim,
+                LossDataInMemory=LossDataInMemory
+            )
+            
+            # 构建地震事件信息
+            earthquake_info = {
+                'i_rup': int(i_rup),
+                'rup_id': str(rupid),
+                'earthquake_info': {
+                    'magnitude': float(rup_data['mag']) if 'mag' in rup_data else None,
+                    'centroid_lat': float(rup_data['centroid_lat']) if 'centroid_lat' in rup_data else None,
+                    'centroid_lon': float(rup_data['centroid_lon']) if 'centroid_lon' in rup_data else None,
+                    'hypo_depth': float(rup_data['hypo_depth']) if 'hypo_depth' in rup_data else None,
+                    'strike': float(rup_data['strike']) if 'strike' in rup_data else None,
+                    'dip': float(rup_data['dip']) if 'dip' in rup_data else None,
+                    'rake': float(rup_data['rake']) if 'rake' in rup_data else None,
+                    'trt': str(rup_data['trt']) if 'trt' in rup_data else None,
+                    'source_id': str(rup_data['source_id']) if 'source_id' in rup_data else None
+                },
+                'simulation_info': {
+                    'total_simulations': n_simulations,
+                    'selected_iSim': current_iSim,
+                    'simulation_indices': iSim_list
+                },
+                'loss_statistics': {
+                    'total_loss_sim': total_loss_sim.tolist(),  # 所有模拟的损失分布
+                    'total_loss_iSim': total_loss_iSim.tolist() if total_loss_iSim is not None else None,  # 指定模拟的损失
+                    'percentiles_iSim': percentiles_iSim.tolist() if percentiles_iSim is not None else None  # 指定模拟的百分位数
+                }
+            }
+            
+            # 添加损失类型特定的统计信息
+            if LossType in BldPSPA_ReprBld.LossTypes1:
+                # 损伤状态类型的统计
+                earthquake_info['loss_statistics']['damage_state_names'] = BldPSPA_ReprBld.DS_types
+                earthquake_info['loss_statistics']['loss_description'] = 'Number of buildings in each damage state'
+            elif LossType in BldPSPA_ReprBld.LossTypes2:
+                # 连续损失类型的统计
+                earthquake_info['loss_statistics']['loss_description'] = f'Total {LossType} value'            
+            all_statistics['earthquake_events'].append(earthquake_info)
+            
+        except Exception as e:
+            logger.error(f"Error processing rupture {i_rup} (ID: {rupid}): {str(e)}")
+            # 添加错误信息到结果中
+            error_info = {
+                'i_rup': int(i_rup),
+                'rup_id': str(rupid),
+                'error': str(e),
+                'earthquake_info': {
+                    'magnitude': float(rup_data['mag']) if 'mag' in rup_data else None,
+                    'centroid_lat': float(rup_data['centroid_lat']) if 'centroid_lat' in rup_data else None,
+                    'centroid_lon': float(rup_data['centroid_lon']) if 'centroid_lon' in rup_data else None
+                }
+            }
+            all_statistics['earthquake_events'].append(error_info)
+    # 添加汇总统计信息
+    successful_events = [e for e in all_statistics['earthquake_events'] if 'error' not in e]
+    all_statistics['summary'] = {
+        'successful_events': len(successful_events),
+        'failed_events': len(all_statistics['earthquake_events']) - len(successful_events),
+        'success_rate': len(successful_events) / len(all_statistics['earthquake_events']) if all_statistics['earthquake_events'] else 0
+    }
+    
+    logger.info(f'Processing completed: {len(successful_events)} successful, {all_statistics["summary"]["failed_events"]} failed')    
+    # 保存JSON文件
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(all_statistics, f, indent=2, ensure_ascii=False)    
+    logger.info(f'Regional loss statistics saved to: {output_file}')
+    
+    logger.info(f'Regional loss statistics generation completed successfully for {CityName}')
+    return str(output_file)
 

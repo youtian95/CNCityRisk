@@ -18,6 +18,7 @@ import numpy as np
 from packaging import version
 import re
 from typing import Optional, Tuple, List, Dict, Any
+import warnings
 
 
 # API key
@@ -29,7 +30,8 @@ config.read(config_file)
 try:
     API_KEY_OPENTOPOGRAPHY = config['API']['api_key_OpenTopography']
 except KeyError:
-    raise KeyError("API key 'api_key_OpenTopography' not found in the configuration file.")
+    warnings.warn("API key 'api_key_OpenTopography' not found in the configuration file. Some features may not work.", UserWarning)
+    API_KEY_OPENTOPOGRAPHY = None
 
 # Path to the data
 CHINA_ADMINDIVISON_SHP = (Path(__file__).parent / './Data/ChinaAdminDivisonSHP-24.02.06').resolve()
@@ -595,6 +597,8 @@ class DEMFetcher:
             dem_type: str - Type of DEM data to fetch (default is 'SRTMGL3')
             output_format: str - Output format of the data (default is 'GTiff')
         """
+        if not api_key:
+            raise ValueError("API key is required for OpenTopography API.")
         self.api_key = api_key
         self.dem_type = dem_type
         self.output_format = output_format

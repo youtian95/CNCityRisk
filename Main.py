@@ -31,7 +31,7 @@ import time
 logger = get_logger('Main')
 
 # The target cities 
-CityName = '武汉'
+CityName = '合肥'
 
 if __name__ == '__main__':    
 
@@ -88,8 +88,12 @@ if __name__ == '__main__':
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='DS_Struct', OutputDir=RegionalLossSim.RESULTDIR/CityName)
         RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
 
-    # Figures: create maps for displaying building losses
-    if 1:
-        CreateRegionalMaps.create_mapdata_median_IM(CityName)
+    # Create maps for displaying building losses
+    if 0:
+        CreateRegionalMaps.create_mapdata_IM(CityName)
     if 0:
         CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
+    if 0:
+        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
+    if 1:
+        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')

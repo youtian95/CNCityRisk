@@ -837,7 +837,7 @@ def create_mbtiles_city_regional_losses(CityName: str, ResultsDir = RegionalLoss
         
         # 创建metadata信息
         metadata = {
-            'ruptures_metadata': [{'rupture_id': int(row['UID']), 'magnitude': float(row['Magnitude'])} for _, row in rup_df.iterrows()],
+            'ruptures_metadata': [{'rupture_id': int(row['rup_id']), 'magnitude': float(row['mag'])} for _, row in rup_df.iterrows()],
             'data_type': LossType,
             'timestamp': datetime.now().isoformat(),
             'description': f'Regional seismic losses for {CityName}, {LossType}, simulation {iSim}'
@@ -850,7 +850,8 @@ def create_mbtiles_city_regional_losses(CityName: str, ResultsDir = RegionalLoss
             logger.error("Install with: conda install -c conda-forge gdal")
             return None
         
-        logger.info(f"Found ogr2ogr at: {ogr2ogr_path}")            # 使用 ogr2ogr 转换为 MBTiles，添加更多兼容性参数
+        logger.info(f"Found ogr2ogr at: {ogr2ogr_path}")            
+        # 使用 ogr2ogr 转换为 MBTiles，添加更多兼容性参数
         cmd = [
             ogr2ogr_path,  # 使用完整路径
             '-f', 'MBTiles',
@@ -991,20 +992,19 @@ def verify_mbtiles_metadata(mbtiles_path, expected_metadata_keys=None):
         logger.error(f"Error verifying MBTiles metadata: {e}")
         return None
 
-def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool = False, output_format: str = 'json'):
+def create_mapdata_IM(CityName: str, savedir = RESULTDIR / 'mapdata', iSim: int = 0, Overwrite: bool = False):
     """
-    Create map data containing the median IM data for all ruptures and all periods for a city.
-    Directly records all IM matrix scatter points without generating MBTiles files.
+    Create map data containing both median and random IM data for all ruptures and all periods for a city.
+    Directly records all IM matrix scatter points as JSON format.
     
     Parameters:
         CityName (str): Name of the city.
         savedir (str): Directory to save the output files.
+        iSim (int): Index of the simulation for random data. Default is 0. The im_random_matrix will contain the specific simulation result at index [0] (last dimension always length 1).
         Overwrite (bool): Whether to overwrite existing files. Default is False.
-        output_format (str): Output format. Options are 'json', 'hdf5', 'csv'. Default is 'json'.
         
     Returns:
-        dict or str: Returns the map data structure if successful, or file path if saved to file. 
-                    Returns None if failed.
+        dict: Returns the map data structure if successful. Returns None if failed.
         
     Data Structure:
         返回的数据结构包含优化的IM站点数据，采用以下格式：
@@ -1012,63 +1012,49 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
         {
             'metadata': {
                 'city': 城市名称,
-                'data_type': 'median_im_mapdata',
+                'data_type': 'complete_im_mapdata',
                 'total_sites': 站点总数,
                 'total_ruptures': 破裂情景总数,
                 'total_periods': 周期总数,
+                'total_simulations': 总模拟次数,
+                'selected_iSim': 选择的模拟索引,
                 'ruptures': {rupture_idx: {rupture_id, magnitude, index}},
                 'periods': {period_idx: {period_value, index}},
-                'description': '直接记录的IM站点散点数据',
+                'description': '直接记录的IM站点散点数据包含中位数和指定随机模拟',
                 'data_structure': '每个站点包含完整的IM矩阵数据'
             },
             'sites': [
                 {
                     'site_id': 站点ID,
                     'lon': 经度,
-                    'lat': 纬度,
-                    'im_matrix': [[IM值]] # 2D数组: [rupture_idx][period_idx] = im_value
+                    'lat': 纬度,                    
+                    'im_median_matrix': [[IM中位数值]] # 2D数组: [rupture_idx][period_idx] = im_median_value
+                    'im_random_matrix': [[[IM随机值]]] # 3D数组: [rupture_idx][period_idx][0] = im_random_value (最后一维长度固定为1，包含选定的iSim值)
                 }, ...
             ]
         }
-        
-        数据访问方式:
-        通过metadata中的ruptures和periods信息解析matrix索引对应的物理参数。
-        可以直接用于前端地图可视化，无需额外的tile服务。
     """
-    
-    logger.info(f"Starting creation of IM scatter points map data for city: {CityName}")
+    logger.info(f"Starting creation of IM scatter points map data (median + random iSim={iSim}) for city: {CityName}")
     
     # Create save directory if it doesn't exist
     if not Path(savedir).exists():
         logger.info(f"Creating save directory: {savedir}")
         Path(savedir).mkdir(parents=True, exist_ok=True)
     
-    # Create output filename based on format
-    if output_format == 'json':
-        output_filename = f'IM_median_mapdata_{CityName}.json'
-    elif output_format == 'hdf5':
-        output_filename = f'IM_median_mapdata_{CityName}.hdf5'
-    elif output_format == 'csv':
-        output_filename = f'IM_median_mapdata_{CityName}.csv'
-    else:
-        logger.error(f"Unsupported output format: {output_format}")
-        return None
-        
+    # Create output filename for JSON format
+    output_filename = f'IM_mapdata_{CityName}.json'
     output_path = Path(savedir) / output_filename
     
     # Skip if file already exists and not overwriting
     if output_path.exists() and not Overwrite:
-        logger.info(f'IM median map data file already exists: {output_filename}. Skipping...')
-        if output_format == 'json':
-            # Return existing data if JSON format
-            try:
-                with open(output_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading existing JSON file: {e}")
-                return None
-        else:
-            return str(output_path)
+        logger.info(f'IM map data file already exists: {output_filename}. Skipping...')
+        # Return existing data if JSON format
+        try:
+            with open(output_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading existing JSON file: {e}")
+            return None
     
     try:
         # Read earthquake ruptures
@@ -1083,16 +1069,17 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
             
         IDvec, lonVec, latVec = Utilities.ReadIDofMeshedSiteFile(sitefile)
         logger.info(f"Loaded {len(IDvec)} sites from site file")
-        
         # Initialize data structures for optimized storage
         ruptures_metadata = {}
         periods_metadata = {}
         
         # First pass: collect all rupture and period metadata
-        all_IM_data = {}  # {site_idx: {rup_idx: {period_idx: im_value}}}
+        all_IM_median_data = {}  # {site_idx: {rup_idx: {period_idx: im_median_value}}}
+        all_IM_random_data = {}  # {site_idx: {rup_idx: {period_idx: [im_random_values]}}}
+        n_simulations = 0  # Will be set after reading first rupture data
         
         # Process each rupture
-        for i_rup in tqdm(range(len(rup_df)), desc="Processing ruptures for IM median map data"):
+        for i_rup in tqdm(range(len(rup_df)), desc="Processing ruptures for IM map data (median + random)"):
             rup_id = rup_df.iloc[i_rup]['rup_id']
             IMresultsDir = IMSim.IM_SIM_DIR / CityName / f'rup_id_{rup_id}/'
             
@@ -1101,8 +1088,17 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
                 continue
             
             # Read IM simulation results (median)
-            IM_mat, Tvec = IMSim._Read_IMSim_results(IMresultsDir, median=True)
-            logger.debug(f"Loaded IM data: {IM_mat.shape[0]} sites, {IM_mat.shape[1]} simulations, {IM_mat.shape[2]} periods")
+            IM_mat_median, Tvec = IMSim._Read_IMSim_results(IMresultsDir, median=True)
+            logger.debug(f"Loaded IM median data: {IM_mat_median.shape[0]} sites, {IM_mat_median.shape[1]} simulations, {IM_mat_median.shape[2]} periods")
+            
+            # Read IM simulation results (random)
+            IM_mat_random, _ = IMSim._Read_IMSim_results(IMresultsDir, median=False)
+            logger.debug(f"Loaded IM random data: {IM_mat_random.shape[0]} sites, {IM_mat_random.shape[1]} simulations, {IM_mat_random.shape[2]} periods")
+            
+            # Set n_simulations from the first rupture
+            if n_simulations == 0:
+                n_simulations = IM_mat_random.shape[1]
+                logger.info(f"Total simulations per rupture: {n_simulations}")
             
             # Store rupture metadata
             ruptures_metadata[i_rup] = {
@@ -1123,25 +1119,47 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
             # Process each period for this rupture
             for iTplot in range(len(Tvec)):
                 try:
-                    # Extract IM values for this period (median is always iSim=0)
-                    im_values = IM_mat[:, 0, iTplot]  # median values for this period
-
-                    # Store IM values for each site
+                    # Extract IM values for this period
+                    # Median values (iSim=0 for median)
+                    im_median_values = IM_mat_median[:, 0, iTplot]  # median values for this period
+                    # Random values (all simulations)
+                    im_random_values = IM_mat_random[:, :, iTplot]  # all random values for this period                    # Store IM values for each site
                     for site_idx in range(len(IDvec)):
-                        im_value = float(im_values[site_idx])
+                        im_median_value = float(im_median_values[site_idx])
                         
-                        # Skip invalid values
-                        if np.isnan(im_value) or np.isinf(im_value):
+                        # Get specific random simulation value based on iSim parameter
+                        if iSim < n_simulations:
+                            im_random_value = float(im_random_values[site_idx, iSim])
+                        else:
+                            logger.warning(f"iSim={iSim} exceeds available simulations ({n_simulations}), using None")
+                            im_random_value = None
+                        
+                        # Skip invalid median values
+                        if np.isnan(im_median_value) or np.isinf(im_median_value):
                             continue
                         
-                        # Initialize nested dictionaries if needed
-                        if site_idx not in all_IM_data:
-                            all_IM_data[site_idx] = {}
-                        if i_rup not in all_IM_data[site_idx]:
-                            all_IM_data[site_idx][i_rup] = {}
+                        # Check if random value is valid
+                        if im_random_value is not None and (np.isnan(im_random_value) or np.isinf(im_random_value)):
+                            im_random_value = None
                         
-                        # Store the IM value
-                        all_IM_data[site_idx][i_rup][iTplot] = round(im_value, 6)
+                        # Initialize nested dictionaries if needed for median data
+                        if site_idx not in all_IM_median_data:
+                            all_IM_median_data[site_idx] = {}
+                        if i_rup not in all_IM_median_data[site_idx]:
+                            all_IM_median_data[site_idx][i_rup] = {}
+                        
+                        # Initialize nested dictionaries if needed for random data
+                        if site_idx not in all_IM_random_data:
+                            all_IM_random_data[site_idx] = {}
+                        if i_rup not in all_IM_random_data[site_idx]:
+                            all_IM_random_data[site_idx][i_rup] = {}
+                        
+                        # Store the IM values
+                        all_IM_median_data[site_idx][i_rup][iTplot] = round(im_median_value, 6)
+                        if im_random_value is not None:
+                            all_IM_random_data[site_idx][i_rup][iTplot] = round(im_random_value, 6)
+                        else:
+                            all_IM_random_data[site_idx][i_rup][iTplot] = None
                     
                     logger.debug(f"Processed period {Tvec[iTplot]:.2f}s for rupture {i_rup}")
                     
@@ -1149,31 +1167,42 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
                     logger.error(f"Error processing period {Tvec[iTplot]:.2f}s, rupture {i_rup}: {e}")
                     import traceback
                     logger.error(f"Traceback: {traceback.format_exc()}")
-                    continue
-        
-        # Second pass: create site data with 2D arrays for each site
+                    continue        
+        # Second pass: create site data with 2D median arrays and 3D random arrays for each site
         sites_data = []
-        for site_idx in tqdm(all_IM_data.keys(), desc="Creating site map data"):
+        for site_idx in tqdm(all_IM_median_data.keys(), desc="Creating site map data"):
             try:
                 lon = float(lonVec[site_idx])
                 lat = float(latVec[site_idx])
                 
-                # Build 2D array of IM values [n_ruptures x n_periods]
+                # Build 2D array of IM median values [n_ruptures x n_periods]
                 n_ruptures = len(ruptures_metadata)
                 n_periods = len(periods_metadata)
-                im_array = [[None for _ in range(n_periods)] for _ in range(n_ruptures)]
+                im_median_array = [[None for _ in range(n_periods)] for _ in range(n_ruptures)]
+                # Build 3D array of IM random values [n_ruptures x n_periods x 1] 
+                # Last dimension always has length 1, containing only the selected iSim value
+                im_random_array = [[[None] for _ in range(n_periods)] for _ in range(n_ruptures)]
                 
-                # Fill the array with available data
-                for rup_idx in all_IM_data[site_idx]:
-                    for period_idx in all_IM_data[site_idx][rup_idx]:
-                        im_array[rup_idx][period_idx] = all_IM_data[site_idx][rup_idx][period_idx]
+                # Fill the median array with available data
+                for rup_idx in all_IM_median_data[site_idx]:
+                    for period_idx in all_IM_median_data[site_idx][rup_idx]:
+                        im_median_array[rup_idx][period_idx] = all_IM_median_data[site_idx][rup_idx][period_idx]
+                
+                # Fill the random array with available data for selected iSim
+                if site_idx in all_IM_random_data:
+                    for rup_idx in all_IM_random_data[site_idx]:
+                        for period_idx in all_IM_random_data[site_idx][rup_idx]:
+                            random_value = all_IM_random_data[site_idx][rup_idx][period_idx]
+                            # Store the selected iSim value in the single slot [0]
+                            if random_value is not None:
+                                im_random_array[rup_idx][period_idx][0] = random_value
                 
                 # Create site data entry
                 site_data = {
                     'site_id': int(IDvec[site_idx]),
                     'lon': lon,
-                    'lat': lat,
-                    'im_matrix': im_array  # 2D array: [rupture_idx][period_idx] = im_value
+                    'lat': lat,                    'im_median_matrix': im_median_array,  # 2D array: [rupture_idx][period_idx] = im_median_value
+                    'im_random_matrix': im_random_array   # 3D array: [rupture_idx][period_idx][0] = im_random_value (selected iSim)
                 }
                 
                 sites_data.append(site_data)
@@ -1187,21 +1216,21 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
         # Create the complete map data structure
         if not sites_data:
             logger.warning(f"No site data was generated for {CityName}")
-            return None
-        
+            return None        
         # Create comprehensive metadata
         mapdata = {
             'metadata': {
                 'city': CityName,
-                'data_type': 'median_im_mapdata',
+                'data_type': 'complete_im_mapdata',
                 'total_sites': len(sites_data),
                 'total_ruptures': len(ruptures_metadata),
-                'total_periods': len(periods_metadata),
+                'total_periods': len(periods_metadata),                'total_simulations': n_simulations,
+                'selected_iSim': iSim,
+                'random_matrix_structure': '3D array with last dimension always length 1',
                 'ruptures': ruptures_metadata,
-                'periods': periods_metadata,
-                'description': f'直接记录的IM站点散点数据用于 {CityName} 城市',
-                'data_structure': '每个站点包含 im_matrix[rupture_idx][period_idx] = im_value',
-                'data_reduction_info': f'{len(IDvec) * len(ruptures_metadata) * len(periods_metadata)} points -> {len(sites_data)} sites',
+                'periods': periods_metadata,                'description': f'直接记录的IM站点散点数据（中位数+指定随机模拟iSim={iSim}）用于 {CityName} 城市',
+                'data_structure': f'每个站点包含 im_median_matrix[rupture_idx][period_idx] = im_median_value 和 im_random_matrix[rupture_idx][period_idx][0] = im_random_value (选定的iSim={iSim})',
+                'data_reduction_info': f'{len(IDvec) * len(ruptures_metadata) * len(periods_metadata) * 2} values -> {len(sites_data)} sites',
                 'created_at': datetime.now().isoformat()
             },
             'sites': sites_data
@@ -1211,71 +1240,14 @@ def create_mapdata_median_IM(CityName: str, savedir = RESULTDIR, Overwrite: bool
         logger.info(f"Total sites: {len(sites_data)}")
         logger.info(f"Ruptures processed: {len(ruptures_metadata)}")
         logger.info(f"Periods per rupture: {len(periods_metadata)}")
-        
-        # Save data based on output format
-        if output_format == 'json':
-            # Save as JSON file
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(mapdata, f, ensure_ascii=False, indent=2)
-            logger.info(f"Successfully saved IM map data as JSON: {output_filename}")
-            logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
-            return mapdata
-            
-        elif output_format == 'hdf5':
-            # Save as HDF5 file
-            with h5py.File(output_path, 'w') as f:
-                # Save metadata
-                metadata_group = f.create_group('metadata')
-                for key, value in mapdata['metadata'].items():
-                    if isinstance(value, dict):
-                        metadata_group.attrs[key] = json.dumps(value, ensure_ascii=False)
-                    else:
-                        metadata_group.attrs[key] = str(value)
-                
-                # Save sites data
-                sites_group = f.create_group('sites')
-                for i, site in enumerate(sites_data):
-                    site_group = sites_group.create_group(f'site_{i}')
-                    site_group.attrs['site_id'] = site['site_id']
-                    site_group.attrs['lon'] = site['lon']
-                    site_group.attrs['lat'] = site['lat']
-                    
-                    # Convert im_matrix to numpy array for HDF5 storage
-                    im_matrix = np.array(site['im_matrix'], dtype=np.float64)
-                    site_group.create_dataset('im_matrix', data=im_matrix)
-            
-            logger.info(f"Successfully saved IM map data as HDF5: {output_filename}")
-            logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
-            return str(output_path)
-            
-        elif output_format == 'csv':
-            # Save as CSV file (flattened format)
-            csv_data = []
-            for site in sites_data:
-                for rup_idx in range(len(ruptures_metadata)):
-                    for period_idx in range(len(periods_metadata)):
-                        im_value = site['im_matrix'][rup_idx][period_idx]
-                        if im_value is not None:
-                            csv_data.append({
-                                'site_id': site['site_id'],
-                                'lon': site['lon'],
-                                'lat': site['lat'],
-                                'rupture_idx': rup_idx,
-                                'rupture_id': ruptures_metadata[rup_idx]['rupture_id'],
-                                'magnitude': ruptures_metadata[rup_idx]['magnitude'],
-                                'period_idx': period_idx,
-                                'period_value': periods_metadata[period_idx]['period_value'],
-                                'im_value': im_value
-                            })
-            
-            # Save to CSV
-            csv_df = pd.DataFrame(csv_data)
-            csv_df.to_csv(output_path, index=False, encoding='utf-8')
-            
-            logger.info(f"Successfully saved IM map data as CSV: {output_filename}")
-            logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
-            logger.info(f"Total records: {len(csv_data)}")
-            return str(output_path)
+        logger.info(f"Selected simulation index: {iSim}")
+        logger.info(f"Total simulations available: {n_simulations}")        # Save data as JSON format
+        # Save as JSON file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(mapdata, f, ensure_ascii=False, indent=2)
+        logger.info(f"Successfully saved IM map data as JSON: {output_filename}")
+        logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
+        return mapdata
             
     except Exception as e:
         logger.error(f"Unexpected error creating IM map data: {e}")
