@@ -11,6 +11,7 @@ import folium
 import webbrowser
 import xyzservices
 import math
+import re
 
 CHN_EQS_DIR = Path(__file__).parent / 'Data/GEM-CHN-v2021.1.0'
 EQ_SOURCES_OUTPUT_DIR = Path(__file__).parent / 'results/EQsources'
@@ -170,6 +171,10 @@ class EQsource:
         logger.info("OpenQuake cache cleanup completed")
 
     def generate_earthquake_events(self, city_name: str):
+        """
+        job.ini
+            number_of_logic_tree_samples = 2000. It means that 2000 years of earthquake events will be generated.
+        """
         # Generate earthquake events for the target city
         logger.info(f"Starting to generate earthquake events for city: {city_name}")
 
@@ -234,9 +239,88 @@ class EQsource:
         df.to_csv(SiteFile, index_label='site_id')
         logger.info(f"Site file processing completed, total {len(df)} sites")
 
+def get_duration_years(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> float:
+    """
+    Read the duration years (num_rlzs) from the report_*.rst file for the target city
+    
+    Args:
+        CityName (str): The name of the city for which to read the duration years.
+        results_dir (Path): The directory where the results are stored. Defaults to EQ_SOURCES_OUTPUT_DIR.
+    
+    Returns:
+        float: The number of realization years (num_rlzs) from the OpenQuake report file.
+    """
+    logger.info(f"Reading duration years from report file for city: {CityName}")
+    
+    results_dir = results_dir / CityName
+    
+    # Find the report file with pattern report_*.rst (stop at first match)
+    try:
+        report_file = next(results_dir.glob('report_*.rst'))
+    except StopIteration:
+        report_file = None
+    
+    if report_file is None:
+        logger.error(f"No report_*.rst file found in {results_dir}")
+        raise FileNotFoundError(f"No report_*.rst file found in {results_dir}")
+    
+    logger.info(f"Reading report file: {report_file}")
+    
+    # Read the file line by line and search for num_rlzs (stop at first match)
+    pattern = r'num_rlzs\s*=\s*(\d+(?:,\d+)*)'
+    
+    with open(report_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            match = re.search(pattern, line)
+            if match:
+                # Remove commas from the number and convert to float
+                num_rlzs_str = match.group(1).replace(',', '')
+                num_rlzs = float(num_rlzs_str)
+                logger.info(f"Found num_rlzs = {num_rlzs} in report file")
+                return num_rlzs
+    
+    # If we reach here, num_rlzs was not found
+    logger.error("Could not find num_rlzs in the report file")
+    raise ValueError("Could not find num_rlzs in the report file")
+
+
+def ReadCityEvents(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
+    """
+    Read earthquake events for the target city
+
+    Args:
+        CityName (str): The name of the city for which to read earthquake event data.
+        results_dir (Path): The directory where the results are stored. Defaults to EQ_SOURCES_OUTPUT_DIR.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the earthquake event data for the specified city. Columns include event_id, rup_id, rlz_id, year, ses_id
+    """
+    logger.info(f"Reading earthquake event data for city: {CityName}")
+
+    results_dir = results_dir / CityName
+
+    # 只匹配 events_数字.csv 格式，且只读取一个文件
+    event_file = next(results_dir.glob('events_[0-9]*.csv'), None)
+    if event_file is None:
+        logger.error(f"No events_[0-9]*.csv file found in {results_dir}")
+        raise FileNotFoundError(f"No events_[0-9]*.csv file found in {results_dir}")
+    logger.info(f"Reading event file: {event_file}")
+    events_df = pd.read_csv(event_file, header=1, dtype=str)
+
+    logger.info(f"Event data reading completed, total {len(events_df)} records")
+    return events_df
 
 def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
-    # Read the earthquake Ruptures for the target city
+    """
+    Read unique earthquake Ruptures for the target city
+
+    Args:
+        CityName (str): The name of the city for which to read earthquake rupture data.
+        results_dir (Path): The directory where the results are stored. Defaults to EQ_SOURCES_OUTPUT_DIR.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the earthquake rupture data for the specified city. Contains columns such as 'rup_id', 'trt', 'multiplicity', 'source_id', and various float columns for rupture parameters.
+    """
     logger.info(f"Reading earthquake rupture data for city: {CityName}")
 
     results_dir = results_dir / CityName
@@ -251,3 +335,30 @@ def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.D
 
     logger.info(f"Rupture data reading completed, total {len(rup_df)} records")
     return rup_df
+
+def get_mean_annual_freq_mag(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
+    """
+    Read the mean annual frequency of exceeding a certain magnitude for a given city.
+    
+    Returns:
+        pd.DataFrame: A DataFrame containing the annualized frequency of exceeding each magnitude. Two columns: 'Magnitude' and 'Frequency'.
+    """
+    logger.info(f"Calculating mean annual frequency of magnitude for city: {CityName}")
+    
+    results_dir = results_dir / CityName
+    # Find the event-based MFD file with pattern similar to event_based_mfd_71.csv
+    freq_mag_file = None
+    for file in results_dir.glob('event_based_mfd_*.csv'):
+        freq_mag_file = file
+        break
+    
+    if freq_mag_file.exists():
+        freq_mag_df = pd.read_csv(freq_mag_file, header=1)
+        # Rename columns from original 'mag', 'freq' to standard names
+        freq_mag_df.rename(columns={'mag': 'Magnitude', 'freq': 'Frequency'}, inplace=True)
+        logger.info(f"Mean annual frequency of magnitude data loaded from {freq_mag_file}")
+    else:
+        logger.error(f"Mean annual frequency of magnitude file not found: {freq_mag_file}")
+        return None
+    
+    return freq_mag_df

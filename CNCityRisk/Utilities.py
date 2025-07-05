@@ -22,15 +22,13 @@ import warnings
 
 
 # API key
-config = configparser.ConfigParser()
-config_file = Path('config.ini')
-if not config_file.exists():
-    raise FileNotFoundError(f"Configuration file {config_file} not found.")
-config.read(config_file)
 try:
+    config = configparser.ConfigParser()
+    config_file = Path('config.ini')
+    config.read(config_file)
     API_KEY_OPENTOPOGRAPHY = config['API']['api_key_OpenTopography']
-except KeyError:
-    warnings.warn("API key 'api_key_OpenTopography' not found in the configuration file. Some features may not work.", UserWarning)
+except Exception:
+    warnings.warn("API key 'api_key_OpenTopography' not found in the configuration file or another error occurred. Some features may not work.", UserWarning)
     API_KEY_OPENTOPOGRAPHY = None
 
 # Path to the data

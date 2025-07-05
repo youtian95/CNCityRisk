@@ -14,6 +14,7 @@ from CNCityRisk import RegionalLossSim
 from CNCityRisk import BldPSPA_ReprBld
 from CNCityRisk import Utilities
 from CNCityRisk import CreateRegionalMaps
+from CNCityRisk import AnnualizedRisk
 from CNCityRisk.EQsources import EQsource, plot_earthquake_events_folium
 from CNCityRisk.Logger import init_root_logger
 init_root_logger()
@@ -77,16 +78,20 @@ if __name__ == '__main__':
         
     # IM field simulation
     if 0:
-        IMSim.CityBldIMSimFromEvents(CityName, overwrite=True)
+        IMSim.CityBldIMSimFromEvents(CityName)
     if 0:
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
     if 0:
         Bld_gdf = Utilities.get_CityBldData(CityName)
-        rupid_2_iSim, all_IM_mat_Bld = IMSim.get_all_IM_mat_Bld(CityName)
-        RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='DS_Struct', OutputDir=RegionalLossSim.RESULTDIR/CityName)
-        RegionalLossSim.simulate_regional_losses(all_IM_mat_Bld, Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
+        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct', OutputDir=RegionalLossSim.RESULTDIR/CityName)
+        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
+        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime', OutputDir=RegionalLossSim.RESULTDIR/CityName)
+
+    # Risk: annualized loss calculation
+    if 0:
+        AnnualizedRisk.calculate_annualized_loss(CityName)
 
     # Create maps for displaying building losses
     if 0:
@@ -95,5 +100,7 @@ if __name__ == '__main__':
         CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
     if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
-    if 1:
+    if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')
+    if 0:
+        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairTime')

@@ -376,7 +376,7 @@ class SpatialIM():
 
         if filepath.exists() and not overwrite:
             logger.warning(f"IM_mat_Bld result file already exists: {filepath}. Use 'overwrite=True' to overwrite.")
-            return np.loadtxt(filepath, dtype=np.float32)
+            return None
 
         if use_regular_grid:
             logger.info("Using regular grid interpolation method")
@@ -1053,12 +1053,15 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int 
         sim.InterpIMfromMeshForCity(batch_size=batch_size, use_regular_grid=True, overwrite=overwrite) # numpy array (i_bld, i_Sim)
 
     logger.info(f"IM field simulation completed for {CityName}")
+
     _MergeIMMatBldFiles(CityName, OutputDir=OutputDir)
 
 def _MergeIMMatBldFiles(CityName: str, OutputDir=IM_SIM_DIR, IM_mat_Bld_FileName=IM_MAT_BLD_FILENAME, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME):
     """
     Merge all IM_mat_Bld files into a h5py file, and return a dask array
+    Optimized version using faster file I/O methods
     """
+    logger.info(f"Starting to merge IM files for {CityName}")
 
     # Read earthquake ruptures
     rup_df = EQsources.ReadCityRuptures(CityName)
@@ -1068,25 +1071,43 @@ def _MergeIMMatBldFiles(CityName: str, OutputDir=IM_SIM_DIR, IM_mat_Bld_FileName
     num_bld = Utilities.get_CityBldData(CityName).shape[0]
     total_sims = len(rup_df) * N_SIM_EACH_RUP
 
+    logger.info(f"Merging {len(rup_df)} files with {num_bld} buildings and {total_sims} total simulations")
+
     # Create h5py file
     h5py_file = OutputDir / CityName / IM_mat_Bld_FileName
 
     with h5py.File(h5py_file, 'w') as hf:
-        # Create dataset in h5py file
-        dset = hf.create_dataset('IM_mat_Bld', shape=(num_bld, total_sims), dtype='float32')
+        # Create dataset in h5py file with optimized settings using float16 for smaller file size
+        dset = hf.create_dataset('IM_mat_Bld', shape=(num_bld, total_sims), dtype='float16', chunks=(min(1000, num_bld), min(N_SIM_EACH_RUP * 10, total_sims)),  compression='gzip', compression_opts=3) 
 
         j_start = 0
-        for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Merging IM files...'):
+        for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Merging IM files'):
             rup_id = row['rup_id']
             file_name = OutputDir / CityName / f'rup_id_{rup_id}/IM_mat_Bld.txt'
-            chunk = np.loadtxt(file_name)
+            
+            # Use pandas read_csv which is much faster than np.loadtxt for large files
+            try:
+                chunk_df = pd.read_csv(file_name, sep=' ', header=None, dtype=np.float16)
+                chunk = chunk_df.values
+            except:
+                # Fallback to numpy if pandas fails
+                logger.warning(f"Pandas failed for {file_name}, falling back to numpy")
+                chunk = np.loadtxt(file_name, dtype=np.float16)
 
+            # Write chunk to h5py dataset
             dset[:, j_start:j_start + chunk.shape[1]] = chunk
             rupid_2_iSim.loc[rup_id, 'iSim'] = np.arange(j_start, j_start + chunk.shape[1])
             j_start += chunk.shape[1]
+            
+            # Log progress for large datasets
+            if i % 10 == 0:
+                logger.debug(f"Processed {i+1}/{len(rup_df)} files, current memory position: {j_start}")
 
     # Save rupid_2_iSim
     rupid_2_iSim.to_csv(OutputDir / CityName / rupid_2_iSim_FileName, index=True, header=True)
+    
+    logger.info(f"Successfully merged IM files for {CityName}, saved to {h5py_file}")
+    logger.info(f"Final dataset shape: ({num_bld}, {total_sims}), file size: {h5py_file.stat().st_size / 1024**2:.2f} MB")
 
 def read_IM_mat_Bld_iteratively(CityName: str, OutputDir=IM_SIM_DIR) -> Generator[Tuple[str, np.array], None, None]:
     """
@@ -1113,7 +1134,22 @@ def read_IM_mat_Bld_iteratively(CityName: str, OutputDir=IM_SIM_DIR) -> Generato
         chunk = np.loadtxt(file_name)
         yield rup_id, chunk
 
-def get_all_IM_mat_Bld(CityName: str, IMsimDir=IM_SIM_DIR, IM_mat_Bld_FileName=IM_MAT_BLD_FILENAME, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME):
+def get_rupid_2_iSim(CityName: str, IMsimDir=IM_SIM_DIR, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME) -> dict:
+    """
+    Read the mapping from rupture ID to simulation indices.
+
+    Parameters:
+        CityName: str - name of the city
+        IMsimDir: Path - IMsimDir directory
+    
+    Returns:
+        rupid_2_iSim: dict - mapping from rupture ID to simulation indices. row index is rup_id, and the column is iSim
+    """
+    rupid_2_iSim = pd.read_csv(IMsimDir / CityName / rupid_2_iSim_FileName, index_col=0, header=0, dtype={0: str})
+    rupid_2_iSim['iSim'] = rupid_2_iSim['iSim'].apply(lambda x: list(map(int, x.strip('[]').split())) if isinstance(x, str) else x)
+    return rupid_2_iSim.to_dict(orient='index')
+
+def get_all_IM_mat_Bld(CityName: str, IMsimDir=IM_SIM_DIR, IM_mat_Bld_FileName=IM_MAT_BLD_FILENAME, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME) -> Tuple[dict, da.Array]:
     """
     return a dask array
 
@@ -1127,9 +1163,7 @@ def get_all_IM_mat_Bld(CityName: str, IMsimDir=IM_SIM_DIR, IM_mat_Bld_FileName=I
     """
 
     # Read rupid_2_iSim
-    rupid_2_iSim = pd.read_csv(IMsimDir / CityName / rupid_2_iSim_FileName, index_col=0, header=0, dtype={0: str})
-    rupid_2_iSim['iSim'] = rupid_2_iSim['iSim'].apply(lambda x: list(map(int, x.strip('[]').split())) if isinstance(x, str) else x)
-    rupid_2_iSim = rupid_2_iSim.to_dict(orient='index')
+    rupid_2_iSim = get_rupid_2_iSim(CityName, IMsimDir, rupid_2_iSim_FileName)
 
     rup_df = EQsources.ReadCityRuptures(CityName)
     total_sims = len(rup_df) * N_SIM_EACH_RUP
@@ -1140,7 +1174,4 @@ def get_all_IM_mat_Bld(CityName: str, IMsimDir=IM_SIM_DIR, IM_mat_Bld_FileName=I
     all_IM_mat_Bld = da.from_array(storage, chunks=(1000, total_sims))
 
     return rupid_2_iSim, all_IM_mat_Bld
-
-
-
 
