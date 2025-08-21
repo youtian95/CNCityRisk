@@ -17,14 +17,24 @@
   - `Data/`：存放原始数据和处理后的数据文件。
     - `BldData`：处理后的建筑的基本信息，包括高度、面积、结构类型等，用于生成结构模型。
     - `CNBldFootprintHeight_Che2024`：建筑轮廓和高度的源数据文件。
-  - `results/`：存放分析结果和可视化图表。
-    - `IDA_Results`：IDA分析结果，每个文件代表一个Repr代表结构。
-    - `ReprBld`：代表结构的结构模型参数。
+    - `POI_AMAP_2020`：高德POI数据，用来预测结构类型
+    - `GEM-CHN-v2021.1.0`：震源模型，用来生成震源
+  - `results/`：存放中间分析结果
+    - `AnnualizedRisk`：【不可删除】年均损失计算
+    - `EQsources`：【不可删除】震源
+    - `IDA_Results`：【不可删除】IDA分析结果，每个文件代表一个Repr代表结构。
+    - `IMsim`：（一个城市的全部分析算完之后可以删除）地震动强度随机场模拟结果，建筑IM插值结果
+    - `IndBldLoss`：【不可删除】单体建筑的地震损失模拟结果
+    - `Maps`：【不可删除】生成用于展示的web地图数据
+    - `RegionalLossSim`：（一个城市的全部分析算完之后可以删除）区域损失模拟结果
+    - `ReprBld`：【不可删除】代表结构的结构模型参数，用于单体代表结构的IDA分析
+    - `ReprBld_PSPA`：【不可删除】代表建筑的信息，用于单体代表建筑地震损失分析
     - `temp`：临时、中间结果。
   - `PrepareBldData.py`：生成建筑基本信息数据。
   - `plot_city.py`：对城市区域进行绘图。
   - `ClassifyBld.py`：对建筑进行分类，生成代表建筑。
   - `IDA_ReprBld.py`：对代表建筑进行IDA分析。
+  - ...
   - `Utilities.py`：其他功能函数。
 
 

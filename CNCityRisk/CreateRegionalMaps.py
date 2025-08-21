@@ -804,7 +804,8 @@ def create_mbtiles_city_regional_losses(CityName: str, ResultsDir = RegionalLoss
             ResultsDir=ResultsDir,
             LossType=LossType,
             i_rup=None,  # 处理所有rupture
-            iSim=iSim        )
+            iSim=iSim        
+            )
         
         if geojson_data:
             data = json.loads(geojson_data)
@@ -992,69 +993,63 @@ def verify_mbtiles_metadata(mbtiles_path, expected_metadata_keys=None):
         logger.error(f"Error verifying MBTiles metadata: {e}")
         return None
 
-def create_mapdata_IM(CityName: str, savedir = RESULTDIR / 'mapdata', iSim: int = 0, Overwrite: bool = False):
+def create_mapdata_IM(CityName: str, savedir = RESULTDIR / 'IMmap', iSim: int = 0, Overwrite: bool = False):
     """
     Create map data containing both median and random IM data for all ruptures and all periods for a city.
-    Directly records all IM matrix scatter points as JSON format.
+    Data is saved as HDF5 format, organized by rupture groups.
     
     Parameters:
         CityName (str): Name of the city.
         savedir (str): Directory to save the output files.
-        iSim (int): Index of the simulation for random data. Default is 0. The im_random_matrix will contain the specific simulation result at index [0] (last dimension always length 1).
+        iSim (int): Index of the simulation for random data. Default is 0.
         Overwrite (bool): Whether to overwrite existing files. Default is False.
         
     Returns:
-        dict: Returns the map data structure if successful. Returns None if failed.
+        str: Path to the HDF5 file if successful. Returns None if failed.
         
-    Data Structure:
-        返回的数据结构包含优化的IM站点数据，采用以下格式：
+    HDF5 Data Structure:
+        HDF5文件按rupture为group组织数据，采用以下结构：
         
-        {
-            'metadata': {
-                'city': 城市名称,
-                'data_type': 'complete_im_mapdata',
-                'total_sites': 站点总数,
-                'total_ruptures': 破裂情景总数,
-                'total_periods': 周期总数,
-                'total_simulations': 总模拟次数,
-                'selected_iSim': 选择的模拟索引,
-                'ruptures': {rupture_idx: {rupture_id, magnitude, index}},
-                'periods': {period_idx: {period_value, index}},
-                'description': '直接记录的IM站点散点数据包含中位数和指定随机模拟',
-                'data_structure': '每个站点包含完整的IM矩阵数据'
-            },
-            'sites': [
-                {
-                    'site_id': 站点ID,
-                    'lon': 经度,
-                    'lat': 纬度,                    
-                    'im_median_matrix': [[IM中位数值]] # 2D数组: [rupture_idx][period_idx] = im_median_value
-                    'im_random_matrix': [[[IM随机值]]] # 3D数组: [rupture_idx][period_idx][0] = im_random_value (最后一维长度固定为1，包含选定的iSim值)
-                }, ...
-            ]
-        }
+        IM_mapdata_{CityName}.hdf5
+        ├── metadata (attributes)
+        │   ├── city: 城市名称
+        │   ├── data_type: 'complete_im_mapdata_hdf5'
+        │   ├── total_sites: 站点总数
+        │   ├── total_ruptures: 破裂情景总数
+        │   ├── total_periods: 周期总数
+        │   ├── total_simulations: 总模拟次数
+        │   ├── selected_iSim: 选择的模拟索引
+        │   └── created_at: 创建时间
+        ├── site_coordinates
+        │   ├── site_id: 1D array of site IDs
+        │   ├── longitude: 1D array of site longitudes
+        │   └── latitude: 1D array of site latitudes
+        ├── periods: 1D array of Sa periods
+        ├── rupture_0/
+        │   ├── metadata (attributes): rupture_id, magnitude
+        │   ├── im_median: 2D array [n_sites, n_periods]
+        │   └── im_random: 2D array [n_sites, n_periods] (selected iSim)
+        ├── rupture_1/
+        │   ├── metadata (attributes): rupture_id, magnitude
+        │   ├── im_median: 2D array [n_sites, n_periods]
+        │   └── im_random: 2D array [n_sites, n_periods] (selected iSim)
+        └── ...
     """
-    logger.info(f"Starting creation of IM scatter points map data (median + random iSim={iSim}) for city: {CityName}")
+    logger.info(f"Starting creation of IM map data in HDF5 format (median + random iSim={iSim}) for city: {CityName}")
     
     # Create save directory if it doesn't exist
     if not Path(savedir).exists():
         logger.info(f"Creating save directory: {savedir}")
         Path(savedir).mkdir(parents=True, exist_ok=True)
     
-    # Create output filename for JSON format
-    output_filename = f'IM_mapdata_{CityName}.json'
+    # Create output filename for HDF5 format
+    output_filename = f'IM_mapdata_{CityName}.hdf5'
     output_path = Path(savedir) / output_filename
     
     # Skip if file already exists and not overwriting
     if output_path.exists() and not Overwrite:
         logger.info(f'IM map data file already exists: {output_filename}. Skipping...')
-        # Return existing data if JSON format
-        try:
-            with open(output_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading existing JSON file: {e}")
-            return None
+        return str(output_path)
     
     try:
         # Read earthquake ruptures
@@ -1069,185 +1064,155 @@ def create_mapdata_IM(CityName: str, savedir = RESULTDIR / 'mapdata', iSim: int 
             
         IDvec, lonVec, latVec = Utilities.ReadIDofMeshedSiteFile(sitefile)
         logger.info(f"Loaded {len(IDvec)} sites from site file")
-        # Initialize data structures for optimized storage
+        
+        # Initialize data structures for HDF5 storage
         ruptures_metadata = {}
         periods_metadata = {}
-        
-        # First pass: collect all rupture and period metadata
-        all_IM_median_data = {}  # {site_idx: {rup_idx: {period_idx: im_median_value}}}
-        all_IM_random_data = {}  # {site_idx: {rup_idx: {period_idx: [im_random_values]}}}
         n_simulations = 0  # Will be set after reading first rupture data
         
-        # Process each rupture
-        for i_rup in tqdm(range(len(rup_df)), desc="Processing ruptures for IM map data (median + random)"):
-            rup_id = rup_df.iloc[i_rup]['rup_id']
-            IMresultsDir = IMSim.IM_SIM_DIR / CityName / f'rup_id_{rup_id}/'
-            
-            if not IMresultsDir.exists():
-                logger.warning(f"IM results directory not found: {IMresultsDir}")
-                continue
-            
-            # Read IM simulation results (median)
-            IM_mat_median, Tvec = IMSim._Read_IMSim_results(IMresultsDir, median=True)
-            logger.debug(f"Loaded IM median data: {IM_mat_median.shape[0]} sites, {IM_mat_median.shape[1]} simulations, {IM_mat_median.shape[2]} periods")
-            
-            # Read IM simulation results (random)
-            IM_mat_random, _ = IMSim._Read_IMSim_results(IMresultsDir, median=False)
-            logger.debug(f"Loaded IM random data: {IM_mat_random.shape[0]} sites, {IM_mat_random.shape[1]} simulations, {IM_mat_random.shape[2]} periods")
-            
-            # Set n_simulations from the first rupture
-            if n_simulations == 0:
-                n_simulations = IM_mat_random.shape[1]
-                logger.info(f"Total simulations per rupture: {n_simulations}")
-            
-            # Store rupture metadata
-            ruptures_metadata[i_rup] = {
-                'rupture_id': str(rup_id),
-                'magnitude': float(rup_df.iloc[i_rup]['mag']),
-                'index': int(i_rup)
-            }
-            
-            # Store period metadata (only need to do this once)
-            if not periods_metadata:
-                for iTplot in range(len(Tvec)):
-                    Sa_period = Tvec[iTplot]
-                    periods_metadata[iTplot] = {
-                        'period_value': float(Sa_period),
-                        'index': int(iTplot)
+        # 首先获取第一个破裂情景的数据来确定数组维度和创建HDF5文件结构
+        first_rup_processed = False
+        
+        # Create and initialize HDF5 file with streaming processing
+        logger.info(f"Creating HDF5 file with streaming processing: {output_filename}")
+        
+        try:
+            with h5py.File(output_path, 'w') as hf:
+                # Process each rupture and stream data directly to HDF5 file
+                for i_rup in tqdm(range(len(rup_df)), desc="Writting IM map data (streaming)"):
+                    rup_id = rup_df.iloc[i_rup]['rup_id']
+                    IMresultsDir = IMSim.IM_SIM_DIR / CityName / f'rup_id_{rup_id}/'
+                    
+                    if not IMresultsDir.exists():
+                        logger.warning(f"IM results directory not found: {IMresultsDir}")
+                        continue
+                    
+                    # Read IM simulation results (median)
+                    IM_mat_median, Tvec = IMSim._Read_IMSim_results(IMresultsDir, median=True)
+                    logger.debug(f"Loaded IM median data: {IM_mat_median.shape[0]} sites, {IM_mat_median.shape[1]} simulations, {IM_mat_median.shape[2]} periods")
+                    
+                    # Read IM simulation results (random)
+                    IM_mat_random, _ = IMSim._Read_IMSim_results(IMresultsDir, median=False)
+                    logger.debug(f"Loaded IM random data: {IM_mat_random.shape[0]} sites, {IM_mat_random.shape[1]} simulations, {IM_mat_random.shape[2]} periods")
+                    
+                    # Set n_simulations from the first rupture
+                    if n_simulations == 0:
+                        n_simulations = IM_mat_random.shape[1]
+                    
+                    # Store rupture metadata
+                    ruptures_metadata[i_rup] = {
+                        'rupture_id': str(rup_id),
+                        'magnitude': float(rup_df.iloc[i_rup]['mag']),
+                        'index': int(i_rup)
                     }
-            
-            # Process each period for this rupture
-            for iTplot in range(len(Tvec)):
-                try:
-                    # Extract IM values for this period
-                    # Median values (iSim=0 for median)
-                    im_median_values = IM_mat_median[:, 0, iTplot]  # median values for this period
-                    # Random values (all simulations)
-                    im_random_values = IM_mat_random[:, :, iTplot]  # all random values for this period                    # Store IM values for each site
-                    for site_idx in range(len(IDvec)):
-                        im_median_value = float(im_median_values[site_idx])
+                    
+                    # Store period metadata (only need to do this once)
+                    if not periods_metadata:
+                        for iTplot in range(len(Tvec)):
+                            Sa_period = Tvec[iTplot]
+                            periods_metadata[iTplot] = {
+                                'period_value': float(Sa_period),
+                                'index': int(iTplot)
+                            }
+                    
+                    # Initialize HDF5 file structure after first rupture data is loaded
+                    if not first_rup_processed:
+                        # Create global metadata attributes
+                        hf.attrs['city'] = CityName
+                        hf.attrs['data_type'] = 'complete_im_mapdata_hdf5'
+                        hf.attrs['total_sites'] = len(IDvec)
+                        hf.attrs['total_ruptures'] = len(rup_df)  # Use full rupture count
+                        hf.attrs['total_periods'] = len(periods_metadata)
+                        hf.attrs['total_simulations'] = n_simulations
+                        hf.attrs['selected_iSim'] = iSim
+                        hf.attrs['created_at'] = datetime.now().isoformat()
+                        hf.attrs['description'] = f'IM data organized by ruptures for {CityName} (median + random iSim={iSim})'
                         
-                        # Get specific random simulation value based on iSim parameter
+                        # Create site coordinates group
+                        site_group = hf.create_group('site_coordinates')
+                        site_group.create_dataset('site_id', data=np.array(IDvec, dtype=np.int32))
+                        site_group.create_dataset('longitude', data=np.array(lonVec, dtype=np.float64))
+                        site_group.create_dataset('latitude', data=np.array(latVec, dtype=np.float64))
+                        
+                        # Create periods dataset
+                        period_values = [periods_metadata[i]['period_value'] for i in sorted(periods_metadata.keys())]
+                        hf.create_dataset('periods', data=np.array(period_values, dtype=np.float64))
+                        
+                        first_rup_processed = True
+                        logger.debug("Initialized HDF5 file structure")
+                    
+                    # Process current rupture data
+                    try:
+                        # Extract median IM values (iSim=0 for median)
+                        median_data = IM_mat_median[:, 0, :]  # Shape: [n_sites, n_periods]
+                        
+                        # Extract random IM values for selected iSim
                         if iSim < n_simulations:
-                            im_random_value = float(im_random_values[site_idx, iSim])
+                            random_data = IM_mat_random[:, iSim, :]  # Shape: [n_sites, n_periods]
                         else:
-                            logger.warning(f"iSim={iSim} exceeds available simulations ({n_simulations}), using None")
-                            im_random_value = None
+                            logger.warning(f"iSim={iSim} exceeds available simulations ({n_simulations}), using NaN")
+                            random_data = np.full((len(IDvec), len(Tvec)), np.nan, dtype=np.float32)
                         
-                        # Skip invalid median values
-                        if np.isnan(im_median_value) or np.isinf(im_median_value):
-                            continue
+                        # Clean data, replacing invalid values with NaN
+                        median_data = np.where(np.isfinite(median_data), median_data, np.nan)
+                        random_data = np.where(np.isfinite(random_data), random_data, np.nan)
                         
-                        # Check if random value is valid
-                        if im_random_value is not None and (np.isnan(im_random_value) or np.isinf(im_random_value)):
-                            im_random_value = None
+                        # Create rupture group and immediately write data to HDF5
+                        rup_group = hf.create_group(f'rupture_{i_rup}')
                         
-                        # Initialize nested dictionaries if needed for median data
-                        if site_idx not in all_IM_median_data:
-                            all_IM_median_data[site_idx] = {}
-                        if i_rup not in all_IM_median_data[site_idx]:
-                            all_IM_median_data[site_idx][i_rup] = {}
+                        # Add rupture metadata as attributes
+                        rup_group.attrs['rupture_id'] = str(rup_id)
+                        rup_group.attrs['magnitude'] = float(rup_df.iloc[i_rup]['mag'])
+                        rup_group.attrs['index'] = i_rup
                         
-                        # Initialize nested dictionaries if needed for random data
-                        if site_idx not in all_IM_random_data:
-                            all_IM_random_data[site_idx] = {}
-                        if i_rup not in all_IM_random_data[site_idx]:
-                            all_IM_random_data[site_idx][i_rup] = {}
+                        # Create datasets for IM data and write directly to disk
+                        # im_median: 2D array [n_sites, n_periods]
+                        rup_group.create_dataset('im_median', 
+                                               data=median_data.astype(np.float32), 
+                                               compression='gzip', 
+                                               compression_opts=6,
+                                               dtype=np.float32)
                         
-                        # Store the IM values
-                        all_IM_median_data[site_idx][i_rup][iTplot] = round(im_median_value, 6)
-                        if im_random_value is not None:
-                            all_IM_random_data[site_idx][i_rup][iTplot] = round(im_random_value, 6)
-                        else:
-                            all_IM_random_data[site_idx][i_rup][iTplot] = None
-                    
-                    logger.debug(f"Processed period {Tvec[iTplot]:.2f}s for rupture {i_rup}")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing period {Tvec[iTplot]:.2f}s, rupture {i_rup}: {e}")
-                    import traceback
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    continue        
-        # Second pass: create site data with 2D median arrays and 3D random arrays for each site
-        sites_data = []
-        for site_idx in tqdm(all_IM_median_data.keys(), desc="Creating site map data"):
-            try:
-                lon = float(lonVec[site_idx])
-                lat = float(latVec[site_idx])
+                        # im_random: 2D array [n_sites, n_periods] for selected iSim
+                        rup_group.create_dataset('im_random', 
+                                               data=random_data.astype(np.float32), 
+                                               compression='gzip', 
+                                               compression_opts=6,
+                                               dtype=np.float32)
+                        
+                        logger.debug(f"Streamed rupture {i_rup} data to HDF5: {rup_id}, median shape: {median_data.shape}, random shape: {random_data.shape}")
+                        
+                        # Clear variables to free memory immediately after writing
+                        del median_data, random_data, IM_mat_median, IM_mat_random
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing rupture {i_rup}: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        continue
                 
-                # Build 2D array of IM median values [n_ruptures x n_periods]
-                n_ruptures = len(ruptures_metadata)
-                n_periods = len(periods_metadata)
-                im_median_array = [[None for _ in range(n_periods)] for _ in range(n_ruptures)]
-                # Build 3D array of IM random values [n_ruptures x n_periods x 1] 
-                # Last dimension always has length 1, containing only the selected iSim value
-                im_random_array = [[[None] for _ in range(n_periods)] for _ in range(n_ruptures)]
-                
-                # Fill the median array with available data
-                for rup_idx in all_IM_median_data[site_idx]:
-                    for period_idx in all_IM_median_data[site_idx][rup_idx]:
-                        im_median_array[rup_idx][period_idx] = all_IM_median_data[site_idx][rup_idx][period_idx]
-                
-                # Fill the random array with available data for selected iSim
-                if site_idx in all_IM_random_data:
-                    for rup_idx in all_IM_random_data[site_idx]:
-                        for period_idx in all_IM_random_data[site_idx][rup_idx]:
-                            random_value = all_IM_random_data[site_idx][rup_idx][period_idx]
-                            # Store the selected iSim value in the single slot [0]
-                            if random_value is not None:
-                                im_random_array[rup_idx][period_idx][0] = random_value
-                
-                # Create site data entry
-                site_data = {
-                    'site_id': int(IDvec[site_idx]),
-                    'lon': lon,
-                    'lat': lat,                    'im_median_matrix': im_median_array,  # 2D array: [rupture_idx][period_idx] = im_median_value
-                    'im_random_matrix': im_random_array   # 3D array: [rupture_idx][period_idx][0] = im_random_value (selected iSim)
-                }
-                
-                sites_data.append(site_data)
-                
-            except Exception as e:
-                logger.error(f"Error creating site data for site {site_idx}: {e}")
-                continue
-        
-        logger.info(f"Created {len(sites_data)} site data entries with 2D IM arrays")
-        
-        # Create the complete map data structure
-        if not sites_data:
-            logger.warning(f"No site data was generated for {CityName}")
-            return None        
-        # Create comprehensive metadata
-        mapdata = {
-            'metadata': {
-                'city': CityName,
-                'data_type': 'complete_im_mapdata',
-                'total_sites': len(sites_data),
-                'total_ruptures': len(ruptures_metadata),
-                'total_periods': len(periods_metadata),                'total_simulations': n_simulations,
-                'selected_iSim': iSim,
-                'random_matrix_structure': '3D array with last dimension always length 1',
-                'ruptures': ruptures_metadata,
-                'periods': periods_metadata,                'description': f'直接记录的IM站点散点数据（中位数+指定随机模拟iSim={iSim}）用于 {CityName} 城市',
-                'data_structure': f'每个站点包含 im_median_matrix[rupture_idx][period_idx] = im_median_value 和 im_random_matrix[rupture_idx][period_idx][0] = im_random_value (选定的iSim={iSim})',
-                'data_reduction_info': f'{len(IDvec) * len(ruptures_metadata) * len(periods_metadata) * 2} values -> {len(sites_data)} sites',
-                'created_at': datetime.now().isoformat()
-            },
-            'sites': sites_data
-        }
-        
-        logger.info(f"Generated complete map data for {CityName}")
-        logger.info(f"Total sites: {len(sites_data)}")
-        logger.info(f"Ruptures processed: {len(ruptures_metadata)}")
-        logger.info(f"Periods per rupture: {len(periods_metadata)}")
-        logger.info(f"Selected simulation index: {iSim}")
-        logger.info(f"Total simulations available: {n_simulations}")        # Save data as JSON format
-        # Save as JSON file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(mapdata, f, ensure_ascii=False, indent=2)
-        logger.info(f"Successfully saved IM map data as JSON: {output_filename}")
-        logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
-        return mapdata
+                # Check if we processed any data
+                if not first_rup_processed:
+                    logger.warning(f"No rupture data was processed for {CityName}")
+                    return None
+            
+            # File is automatically closed when exiting with block
+            logger.info(f"Successfully saved IM map data as HDF5 with streaming: {output_filename}")
+            logger.info(f"File size: {output_path.stat().st_size / (1024*1024):.1f} MB")
+            logger.info(f"Total sites: {len(IDvec)}")
+            logger.info(f"Ruptures processed: {len(ruptures_metadata)}")
+            logger.info(f"Periods per rupture: {len(periods_metadata)}")
+            logger.info(f"Selected simulation index: {iSim}")
+            logger.info(f"Total simulations available: {n_simulations}")
+            logger.info(f"Data structure: HDF5 with rupture groups, each containing 2D arrays [sites x periods]")
+            
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"Error creating/writing HDF5 file: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
             
     except Exception as e:
         logger.error(f"Unexpected error creating IM map data: {e}")

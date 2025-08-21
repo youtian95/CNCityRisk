@@ -45,6 +45,7 @@ def _calculate_mean_annual_freq_mag(CityName, OutputDir=RESULTDIR):
 def _precompute_total_loss_data(CityName, LossType: str = 'RepairCost_Total'):
     """
     预计算总损失数据，避免在后续函数中重复计算get_total_loss_sim
+    使用流式处理避免内存溢出问题
     
     Parameters:
         CityName (str): 城市名称
@@ -63,16 +64,13 @@ def _precompute_total_loss_data(CityName, LossType: str = 'RepairCost_Total'):
     
     logger.info(f"Precomputing total loss data for city: {CityName}, loss type: {LossType}")
     
-    # 加载损失数据到内存
-    loss_data = RegionalLossSim.load_loss_data_to_memory(CityName, LossType=LossType)
-    
     # 读取震源数据
     rup_df = EQsources.ReadCityRuptures(CityName)
     i_rup_list = [i_rup for i_rup in range(len(rup_df))]
     rup_multiplicity = rup_df['multiplicity'].values.astype(float)
     
-    # 计算总损失模拟结果（耗时操作，只执行一次）
-    total_loss_sim = RegionalLossSim.get_total_loss_sim(CityName, LossType=LossType, i_rup=i_rup_list, LossDataInMemory=loss_data)
+    # 使用流式处理计算总损失模拟结果，避免内存溢出
+    total_loss_sim = RegionalLossSim.get_total_loss_sim(CityName, LossType=LossType, i_rup=i_rup_list)
     total_loss_mean = total_loss_sim.mean(axis=1)  # 对每个震源的模拟结果求平均
     
     # 获取持续年数
