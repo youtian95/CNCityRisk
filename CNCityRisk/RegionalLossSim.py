@@ -1,3 +1,47 @@
+'''
+模块功能说明：
+==============
+
+本模块 (RegionalLossSim) 提供区域地震损失模拟和分析的完整工具链，包括：
+
+
+主要分析函数：
+simulate_regional_losses()
+    - 多进程版本的区域地震损失模拟
+    - 直接按震源（i_rup）分组存储数据，无需后续重组操作
+    - 提高大规模计算效率并优化存储结构
+
+分析后查询结果函数：
+load_BldLoss_by_rupture()
+    - 从重组后的文件中加载指定震源的损失数据
+    - 支持单个或多个震源的快速读取
+get_total_loss_sim()
+    - 通用的区域总损失分布计算接口
+    - 自动选择最优的数据源和计算方法
+get_statistics_regional_losses()
+    - 计算区域地震损失的详细统计信息
+    - 包括损失分布、百分位数等统计指标
+
+生成地图显示数据：
+
+create_geojson_regional_losses()
+    - 生成区域损失的GeoJSON格式数据
+    - 支持Web可视化和GIS分析
+create_statistics_regional_losses()
+    - 批量生成所有地震事件的损失统计JSON文件
+    - 提供结构化的统计数据输出
+
+其他功能函数：
+load_loss_data_to_memory()
+     - 将损失数据从HDF5文件加载到内存
+     - 便于后续快速访问和分析
+get_rupture_simulation_indices()
+     - 获取指定震源的模拟索引信息
+     - 辅助函数，用于数据索引和验证
+'''
+
+
+
 from . import Utilities
 from . import BldPSPA_ReprBld
 from . import EQsources
@@ -23,7 +67,6 @@ import pickle
 import time
 
 
-
 RESULTDIR = Path(__file__).resolve().parent / 'results/RegionalLossSim/'
 MAP_ZIP = RESULTDIR / 'maps.7z'
 
@@ -31,6 +74,303 @@ MAP_ZIP = RESULTDIR / 'maps.7z'
 logger = Logger.get_logger('RegionalLossSim')
 
 
+def simulate_regional_losses(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
+    '''
+    使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
+    每个进程内部从dask数组读取所需的数据片段，避免大数组的完整复制。
+    直接按震源（i_rup）分组存储数据，无需后续重组操作。
+
+    Parameters:
+        CityName (str): 城市名称，用于获取IM模拟数据和确定HDF5文件路径
+        Bld_gdf (gpd.GeoDataFrame): 包含建筑数据的GeoDataFrame
+        losstype (str): 要模拟的损失类型。选项包括 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime'
+        OutputDir (Path): 保存输出文件的目录。默认为 'results/RegionalLossSim/'
+        ChunkSize (int): 每个chunk中要处理的建筑数量。默认为10000
+        n_processes (int): 使用的进程数。如果为None，则使用4个
+    
+    Results:
+        BldLoss_{losstype}_ByRupture.hdf5: 包含按震源分组的模拟区域损失的HDF5文件
+            group_rup_{i}: 震源i的数据组
+                loss_matrix: (N_bld x N_sim) 损失矩阵，行为建筑，列为该震源的模拟
+                rupid: 震源ID字符串
+                iSim_indices: 该震源在全局模拟中的索引列表
+                rup_info: 震源的详细信息（震级、位置等）
+    '''
+    logger.info(f"Starting multiprocessing regional loss simulation for {len(Bld_gdf)} buildings with loss type: {losstype}")
+    
+    # 获取IM模拟数据
+    logger.info(f"Loading IM simulation data for city: {CityName}")
+    rupid_2_iSim, IM_sim = IMSim.get_all_IM_mat_Bld(CityName)
+    
+    # check if the losstype is valid
+    if losstype not in BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2:
+        error_msg = f"losstype must be one of {BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2}."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    # Get the full path of the OutputDir with CityName subdirectory
+    OutputDir = Path(OutputDir).resolve() / CityName
+    if not OutputDir.exists():
+        OutputDir.mkdir(parents=True)
+        logger.info(f"Created output directory: {OutputDir}")
+
+    # Read the table
+    T = Bld_gdf
+
+    # check if the row number of IM_sim is equal to the row number of T
+    if len(IM_sim) != len(T):
+        error_msg = "The number of rows in IM_sim must be equal to the number of rows in BldsFile."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    # 设置进程数
+    if n_processes is None:
+        n_processes = min(mp.cpu_count(), 4)  # 限制最大进程数避免过度消耗资源
+    
+    logger.info(f"Processing {len(T)} buildings in chunks of {ChunkSize} using {n_processes} processes")
+    
+    # 获取震源信息
+    rup_df = EQsources.ReadCityRuptures(CityName)
+    N_bld = len(T)
+    N_rup = len(rup_df)
+    
+    logger.info(f"Found {N_rup} ruptures and {N_bld} buildings")
+    
+    # 检查数据类型并准备参数
+    if isinstance(IM_sim, da.Array):
+        # 对于dask数组，尝试直接使用HDF5文件路径
+        IM_h5_file_path = str(IMSim.IM_SIM_DIR / CityName / IMSim.IM_MAT_BLD_FILENAME)
+        IM_is_h5_file = True
+        IM_data = None
+        logger.info(f"Using HDF5 file for multiprocessing: {IM_h5_file_path}")
+    else:
+        # 对于numpy数组的情况
+        IM_data = IM_sim
+        estimated_size_gb = (IM_sim.nbytes / (1024**3))
+        logger.info(f"Detected numpy array with size: {estimated_size_gb:.2f} GB")
+        
+        IM_is_h5_file = False
+        IM_h5_file_path = None
+    
+    # 创建输出文件，直接按震源分组
+    output_file = OutputDir / f'BldLoss_{losstype}_ByRupture.hdf5'
+    
+    # 创建HDF5文件并设置按震源分组的结构
+    with h5py.File(output_file, 'w') as f:
+        # 添加文件级别的元数据
+        f.attrs['CityName'] = CityName
+        f.attrs['losstype'] = losstype
+        f.attrs['created'] = pd.Timestamp.now().isoformat()
+        f.attrs['total_buildings'] = N_bld
+        f.attrs['total_ruptures'] = N_rup
+        f.attrs['organized_by_rupture'] = True
+        
+        # 为每个震源创建组和数据集
+        logger.info("Creating groups and datasets for each rupture...")
+        iSim_mappings = {}
+        
+        with tqdm(total=N_rup, desc="Creating rupture groups...", unit="rupture") as pbar:
+            for i_rup in range(N_rup):
+                rup_data = rup_df.iloc[i_rup]
+                rupid = rup_data['rup_id']
+            
+                # 获取该震源的模拟索引
+                iSim_list = rupid_2_iSim[rupid]['iSim']
+                N_sim_rup = len(iSim_list)
+                iSim_mappings[i_rup] = iSim_list
+                
+                # 创建该震源的组
+                rup_group = f.create_group(f'group_rup_{i_rup}')
+                
+                # 预先创建损失矩阵数据集
+                if losstype in BldPSPA_ReprBld.LossTypes1:
+                    # 损伤状态类型使用int8
+                    rup_group.create_dataset(
+                        'loss_matrix', 
+                        shape=(N_bld, N_sim_rup),
+                        dtype='int8',
+                        compression='gzip',
+                        compression_opts=9,
+                        shuffle=True,
+                        chunks=True,
+                        fillvalue=-1  # 用-1表示未处理的数据
+                    )
+                else:
+                    # 连续损失类型使用float32
+                    rup_group.create_dataset(
+                        'loss_matrix', 
+                        shape=(N_bld, N_sim_rup),
+                        dtype='float32',
+                        compression='gzip',
+                        compression_opts=9,
+                        shuffle=True,
+                        chunks=True,
+                        fillvalue=-1.0  # 用-1.0表示未处理的数据
+                    )
+                
+                # 保存震源元数据
+                rup_group.attrs['rupid'] = str(rupid)
+                rup_group.attrs['i_rup'] = i_rup
+                rup_group.attrs['N_sim'] = N_sim_rup
+                
+                # 保存模拟索引
+                rup_group.create_dataset('iSim_indices', data=iSim_list, compression='gzip')
+                
+                # 保存震源详细信息
+                rup_info_group = rup_group.create_group('rup_info')
+                for col in rup_df.columns:
+                    if col in rup_data and pd.notna(rup_data[col]):
+                        value = rup_data[col]
+                        if isinstance(value, (int, float, str)):
+                            rup_info_group.attrs[col] = value
+                        else:
+                            rup_info_group.attrs[col] = str(value)
+                
+                # 更新进度条
+                pbar.update(1)
+    
+    logger.info(f"Created output file with rupture-organized structure: {output_file}")
+    
+    # 创建多进程管理器和锁
+    manager = mp.Manager()
+    lock = manager.Lock()
+    
+    # 准备chunk数据
+    chunks = []
+    for chunk_start in range(0, len(T), ChunkSize):
+        chunk_end = min(chunk_start + ChunkSize, len(T))
+        bld_chunk = T.iloc[chunk_start:chunk_end].copy()  # 复制避免索引问题
+        
+        # 传递参数给工作进程（包含锁对象和震源映射信息）
+        chunks.append((bld_chunk, IM_h5_file_path, IM_is_h5_file, IM_data, losstype, chunk_start, chunk_end, str(output_file), lock, iSim_mappings, N_rup))
+    
+    logger.info(f"Created {len(chunks)} chunks for processing")
+    
+    # 使用进程池处理chunks
+    try:
+        with mp.Pool(processes=n_processes) as pool:
+            # 使用imap显示进度
+            processed_counts = []
+            with tqdm(total=len(chunks), desc=f"Processing {len(T)} buildings in {len(chunks)} chunks", unit="chunk") as pbar:
+                for count in pool.imap(_process_BldLoss_chunk_worker_by_rupture, chunks):
+                    processed_counts.append(count)
+                    pbar.update(1)
+    except Exception as e:
+        logger.error(f"Error in multiprocessing: {str(e)}")
+        raise
+    
+    # 统计处理结果
+    total_buildings_processed = sum(processed_counts)
+    logger.info(f"Multiprocessing regional loss simulation completed (organized by rupture). Processed {total_buildings_processed} buildings. Results saved to: {output_file}")
+
+
+def _process_BldLoss_chunk_worker_by_rupture(args):
+    """
+    多进程工作函数，处理单个chunk的损失模拟，直接按震源分组写入数据
+    每个进程内部从HDF5文件读取所需的数据片段，并按震源分组直接写入HDF5文件
+    
+    Parameters:
+        args: 包含以下元素的元组
+            - bld_chunk: DataFrame chunk containing building data for this chunk
+            - IM_h5_file_path: HDF5文件路径，包含IM模拟数据
+            - IM_is_h5_file: 布尔值，指示IM数据是否在HDF5文件中
+            - IM_data: 如果不是HDF5文件，则是numpy数组数据
+            - losstype: Type of loss to simulate
+            - chunk_start: Starting index of this chunk
+            - chunk_end: Ending index of this chunk
+            - output_file: HDF5输出文件路径
+            - lock: 多进程锁对象
+            - iSim_mappings: 震源到模拟索引的映射字典 {i_rup: [iSim_list]}
+            - N_rup: 震源总数
+    
+    Returns:
+        int: 处理的建筑数量
+    """
+    bld_chunk, IM_h5_file_path, IM_is_h5_file, IM_data, losstype, chunk_start, chunk_end, output_file, lock, iSim_mappings, N_rup = args
+    
+    # 在每个进程内部按需读取IM数据片段
+    if IM_is_h5_file:
+        # 从HDF5文件读取当前chunk需要的数据
+        with h5py.File(IM_h5_file_path, 'r') as f:
+            IM_chunk = f['IM_mat_Bld'][chunk_start:chunk_end, :]
+    else:
+        # numpy数组直接切片
+        IM_chunk = IM_data[chunk_start:chunk_end, :]
+    
+    # 存储按震源分组的结果
+    rupture_results = {}  # {i_rup: {bld_idx: loss_values}}
+    
+    # find unique ReprBldID_PSPA in the chunk
+    unique_ReprBldID_PSPA = bld_chunk['ReprBldID_PSPA'].unique()
+    
+    # iterate based on the ReprBldID_PSPA
+    for ReprPSPAID in unique_ReprBldID_PSPA:
+        # find the index of the buildings with the same ReprBldID_PSPA.
+        idx = bld_chunk[bld_chunk['ReprBldID_PSPA'] == ReprPSPAID].index
+        N_same_ReprBldID_PSPA = len(idx)
+        N_sim_total = IM_chunk.shape[1]
+        
+        # get the IM list for this ReprBldID_PSPA
+        # 调整索引以匹配chunk内的相对位置
+        relative_idx = [i - chunk_start for i in idx]
+        IMlist = IM_chunk[relative_idx, :].tolist()
+        
+        # convert IMlist (N_same_ReprBldID_PSPA x N_sim_total) to one row
+        IMlist = [item for sublist in IMlist for item in sublist]
+        
+        # sim_loss: List of simulated loss values for each IM
+        sim_loss = BldPSPA_ReprBld.SimLossRandomly(
+            ReprPSPAID=ReprPSPAID, IM=IMlist, losstype=losstype, Nsim=[1]*len(IMlist)
+        )
+        
+        # since each element in sim_loss has only one value, flatten it
+        sim_loss = list(np.array(sim_loss).flatten())
+        # sim_loss has only one row. convert it to N_same_ReprBldID_PSPA x N_sim_total
+        sim_loss = [sim_loss[i*N_sim_total:(i+1)*N_sim_total] for i in range(N_same_ReprBldID_PSPA)]
+        
+        # 按震源分组处理损失数据
+        for i_rup in range(N_rup):
+            if i_rup not in rupture_results:
+                rupture_results[i_rup] = {}
+            
+            # 获取该震源的模拟索引
+            iSim_list = iSim_mappings[i_rup]
+            
+            # 为当前ReprPSPAID的每个建筑提取该震源的损失数据
+            for i, idx_i in enumerate(idx):
+                # 提取该震源的损失值
+                rup_loss_values = [sim_loss[i][j] for j in iSim_list]
+                
+                # 转换数据类型
+                if losstype in BldPSPA_ReprBld.LossTypes1:
+                    # Convert to categorical type to save space
+                    sim_loss_cat = pd.Categorical(np.array(rup_loss_values), categories=BldPSPA_ReprBld.DS_types)
+                    rupture_results[i_rup][idx_i] = sim_loss_cat.codes.astype('int8')
+                else:
+                    rupture_results[i_rup][idx_i] = np.array(rup_loss_values, dtype='float32')
+    
+    # 使用传入的锁进行多进程安全写入
+    with lock:
+        try:
+            with h5py.File(output_file, 'a') as f:
+                # 按震源写入数据
+                for i_rup, bld_data in rupture_results.items():
+                    rup_group_name = f'group_rup_{i_rup}'
+                    if rup_group_name in f:
+                        rup_group = f[rup_group_name]
+                        loss_matrix = rup_group['loss_matrix']
+                        
+                        # 为该震源写入建筑损失数据
+                        for bld_idx, loss_values in bld_data.items():
+                            # 写入损失矩阵的对应行
+                            loss_matrix[bld_idx, :] = loss_values
+        except Exception as e:
+            print(f"Warning: Failed to write chunk results by rupture: {e}")
+            print(f"Chunk processed buildings but could not write to file")
+    
+    return len(bld_chunk)
+
+# deprecated
 def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize = 10000) -> None:
     '''
     单进程版本：基于概率性地震性能评估(PSPA)结果模拟区域地震损失。
@@ -58,8 +398,8 @@ def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataF
         logger.error(error_msg)
         raise ValueError(error_msg)
     
-    # Get the full path of the OutputDir
-    OutputDir = Path(OutputDir).resolve()
+    # Get the full path of the OutputDir with CityName subdirectory
+    OutputDir = Path(OutputDir).resolve() / CityName
     if not OutputDir.exists():
         OutputDir.mkdir(parents=True)
         logger.info(f"Created output directory: {OutputDir}")
@@ -121,7 +461,7 @@ def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataF
     output_file = OutputDir / f'BldLoss_{losstype}.hdf5'
     logger.info(f"Single-process regional loss simulation completed. Results saved to: {output_file}")
 
-
+# deprecated
 def simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 10000, n_processes: int = None) -> None:
     '''
     使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
@@ -133,7 +473,7 @@ def simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFra
         losstype (str): 要模拟的损失类型。选项包括 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime'
         OutputDir (Path): 保存输出文件的目录。默认为 'results/RegionalLossSim/'
         ChunkSize (int): 每个chunk中要处理的建筑数量。默认为10000
-        n_processes (int): 使用的进程数。如果为None，则使用CPU核心数
+        n_processes (int): 使用的进程数。如果为None，则使用4个
     
     Results:
         BldLoss_{losstype}.hdf5: 包含模拟区域损失的HDF5文件
@@ -151,8 +491,8 @@ def simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFra
         logger.error(error_msg)
         raise ValueError(error_msg)
     
-    # Get the full path of the OutputDir
-    OutputDir = Path(OutputDir).resolve()
+    # Get the full path of the OutputDir with CityName subdirectory
+    OutputDir = Path(OutputDir).resolve() / CityName
     if not OutputDir.exists():
         OutputDir.mkdir(parents=True)
         logger.info(f"Created output directory: {OutputDir}")
@@ -333,6 +673,7 @@ def _process_BldLoss_chunk_worker(args):
             print(f"Chunk processed {len(chunk_results)} buildings but could not write to file")
     
     return len(chunk_results)
+
 
 
 def reorganize_BldLoss_by_rupture(CityName: str, losstype: str, InputDir: Path = RESULTDIR, OutputDir: Path = RESULTDIR, chunk_size: int = 10000) -> None:
@@ -623,7 +964,7 @@ def load_BldLoss_by_rupture(CityName: str, losstype: str, i_rup: Union[int, list
     return results[i_rup] if is_single_rupture else results
 
 
-def get_total_loss_sim_by_rupture(CityName: str, ResultsDir: Path = RESULTDIR, losstype: str = 'DS_Struct', i_rup: Union[int, list] = 0, n_processes: int = None) -> np.ndarray:
+def _get_total_loss_sim_by_rupture(CityName: str, ResultsDir: Path = RESULTDIR, losstype: str = 'DS_Struct', i_rup: Union[int, list] = 0, n_processes: int = None) -> np.ndarray:
     '''
     基于按震源重组的损失文件计算所有模拟的区域总损失分布（带缓存多进程版本）
     读取BldLoss_{losstype}_ByRupture.hdf5文件格式
@@ -652,7 +993,7 @@ def get_total_loss_sim_by_rupture(CityName: str, ResultsDir: Path = RESULTDIR, l
         'CityName': CityName,
         'losstype': losstype,
         'i_rup': i_rup,
-        'function': 'get_total_loss_sim_by_rupture'
+        'function': '_get_total_loss_sim_by_rupture'
     }
     cache_key = hashlib.md5(str(cache_key_data).encode()).hexdigest()
     cache_file = temp_dir / f'total_loss_sim_by_rupture_{cache_key}.pkl'
@@ -846,7 +1187,7 @@ def get_total_loss_sim(CityName: str, ResultsDir: str = RESULTDIR, LossType: str
         raise FileNotFoundError(f'ByRupture file not found: {by_rupture_file}. Please run reorganize_BldLoss_by_rupture() first.')
     
     # 使用按震源重组的文件计算
-    total_loss_sim = get_total_loss_sim_by_rupture(
+    total_loss_sim = _get_total_loss_sim_by_rupture(
         CityName=CityName,
         ResultsDir=ResultsDir_path,
         losstype=LossType,

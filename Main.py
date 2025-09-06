@@ -31,10 +31,13 @@ import time
 # Get main program logger
 logger = get_logger('Main')
 
-# The target cities 
-CityName = '重庆'
+def reproduce_wenchuan2008_event():
+    '''
+    Reproduce the building losses of the 2008 Wenchuan earthquake event
+    '''
+    pass
 
-if __name__ == '__main__':    
+def analyze_1_city(CityName = '重庆'):
 
     # Prepare building data, including structural type, occupancy type...    
     if 0:
@@ -83,25 +86,21 @@ if __name__ == '__main__':
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
-    if 0:
+    if 1:
         Bld_gdf = Utilities.get_CityBldData(CityName)
-        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct', OutputDir=RegionalLossSim.RESULTDIR/CityName)
-        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total', OutputDir=RegionalLossSim.RESULTDIR/CityName)
-        RegionalLossSim.simulate_regional_losses_multiprocess(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime', OutputDir=RegionalLossSim.RESULTDIR/CityName)
-    if 0:
-        RegionalLossSim.reorganize_BldLoss_by_rupture(CityName,losstype='DS_Struct')
-        RegionalLossSim.reorganize_BldLoss_by_rupture(CityName,losstype='RepairCost_Total')
-        RegionalLossSim.reorganize_BldLoss_by_rupture(CityName,losstype='RepairTime')
+        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct')
+        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total')
+        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime')
 
     # Risk: annualized loss calculation
     if 0:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
     # Create maps for displaying building losses
-    if 1:
+    if 0:
         CreateRegionalMaps.create_mapdata_IM(CityName)
     if 0:
-        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
+        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct')
 
     # Create statistics for regional losses
     if 0:
@@ -110,3 +109,7 @@ if __name__ == '__main__':
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')
     if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairTime')
+
+if __name__ == '__main__':    
+
+    analyze_1_city()

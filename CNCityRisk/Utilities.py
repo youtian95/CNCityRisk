@@ -96,11 +96,12 @@ def height2story(height, Round = True):
 
     return story
 
-def get_DistrictsOfCity_polygons(CityName) -> gpd.GeoDataFrame:
+def get_DistrictsOfCity_polygons(CityName, N_city = 1) -> gpd.GeoDataFrame:
     '''
-    Get the polygons of districts of a city from the shapefile.
+    Get the polygons of districts of a city from the shapefile. 
     Parameters:
         CityName (str): Name of the city.
+        N_city (int): If multiple cities contain "CityName", only districts of the first N_city cities will be returned.
     Returns:
         districts_gdf (geopandas.geodataframe.GeoDataFrame): The polygons of districts of the city.
     '''
@@ -109,6 +110,14 @@ def get_DistrictsOfCity_polygons(CityName) -> gpd.GeoDataFrame:
     districts_gdf = district_shapefile[district_shapefile['ct_name'].str.contains(CityName)]
     if districts_gdf.empty:
         raise ValueError(f"City {CityName} not found in the shapefile.")
+
+    # Get unique city names that match the search criteria
+    matched_cities = districts_gdf['ct_name'].unique()
+    
+    # Limit to first N_city cities if there are multiple matches
+    if len(matched_cities) > N_city:
+        selected_cities = matched_cities[:N_city]
+        districts_gdf = districts_gdf[districts_gdf['ct_name'].isin(selected_cities)]
 
     return districts_gdf
 
@@ -148,13 +157,14 @@ def get_district_polygon(CityName, DistrictName):
 
     return district_polygon
 
-def get_city_polygon(CityName):
+def get_city_polygon(CityName, N_city: int = 1):
     '''
     Get the polygon of a city from the shapefile.
     Parameters:
         CityName (str): Name of the city.
+        N_city (int): If multiple cities contain the string "CityName", only the first N_city cities will be returned.
     Returns:
-        city_polygon (shapely.geometry.polygon.Polygon or shapely.geometry.multipolygon.MultiPolygon): The polygon of the city.
+        city_polygon (shapely.geometry.polygon.Polygon or shapely.geometry.multipolygon.MultiPolygon or list): The polygon of the city. If multiple cities are found, returns a list of polygons.
     '''
     
     city_shapefile = gpd.read_file(CHINA_ADMINDIVISON_SHP/'3. City'/'city.shp')
@@ -164,7 +174,16 @@ def get_city_polygon(CityName):
     if city_boundary.empty:
         raise ValueError(f"City {CityName} not found in the shapefile.")
     
-    city_polygon = city_boundary.geometry.iloc[0]
+    # Limit to first N_city records if there are multiple matches
+    if len(city_boundary) > N_city:
+        city_boundary = city_boundary.head(N_city)
+    
+    # Return the first city's polygon (or list of polygons if multiple cities)
+    if len(city_boundary) == 1:
+        city_polygon = city_boundary.geometry.iloc[0]
+    else:
+        # If multiple cities, return a list of all city polygons
+        city_polygon = city_boundary.geometry.tolist()
     
     return city_polygon
 

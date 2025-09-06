@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "CNCityRisk"
-version = "0.3.0"
+version = "0.3.1"
 description = "Regional seismic risk assessment of buildings of major cities in China"
 authors = [
     { name="Tian You", email="youtian@njtech.edu.cn" }
@@ -33,7 +33,8 @@ dependencies = [
     "pypinyin",
     "py7zr",
     "rasterio",
-    "numpy==1.26.0",
+    "numpy",
+    "cnmaps",
 ]
 
 [project.urls]

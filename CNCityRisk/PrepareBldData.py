@@ -35,7 +35,8 @@ def prepare_building_data(CityName, MinBldArea = None):
 
     # get all the districts
     districts_gdf = get_DistrictsOfCity_polygons(CityName)
-    logger.info(f'Found {len(districts_gdf)} districts')    # create a new folder for the city if not exist
+    logger.info(f'Found {len(districts_gdf)} districts')   
+    # create a new folder for the city if not exist
     CityDir = BLD_DATA_PATH / CityName
     CityDir.mkdir(parents=True, exist_ok=True)
     logger.debug(f'Created city data directory: {CityDir}')
