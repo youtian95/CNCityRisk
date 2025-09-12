@@ -6,7 +6,8 @@
 ## 计划
 
 - `v0.3.2`：重新选定重庆市的范围为主城区，并重新计算
-- `research`：汶川地震的建筑群损失验证：添加数据文件
+- `research`：汶川地震的建筑群损失验证：验证分析对比
+- 更新依赖文件`requirements.txt`
 
 ## 文件结构
 
@@ -43,7 +44,7 @@
   - `Utilities.py`：其他功能函数。
 
 
-## 安装步骤
+## 开发环境
 1. **创建虚拟环境**：
     - 打开Anaconda Prompt（或终端）。
     - 使用以下命令创建一个新的虚拟环境（例如，环境名称为`quake_resilience`）：
@@ -54,9 +55,10 @@
       ```bash
       conda activate quake_resilience
       ```
-3. **安装库**：
+3. **安装依赖**：
       ```bash
-      pip install cncityrisk
+      pip install openquake.engine BldStructPred MDOFModel BldCluster h5py folium cartopy dask geojsoncontour addressparser pypinyin py7zr rasterio numpy==1.26.2 cnmaps
+      # 备注：numpy版本其他版本可能会与openquake.engine冲突
       ```
 4. **运行项目**：
     - 完成以上配置后，就可以运行`Main.py`文件

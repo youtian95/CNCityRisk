@@ -23,21 +23,44 @@ REPR_BLD_FILE = 'ReprBld.csv'
 _ReprBldFile = Path.cwd() / 'Representative Buildings.csv'
 _Bld2ReprBldFile = Path.cwd() / 'Bld2ReprBld.csv'
 
-def BldClassify(CityName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list = STRUCT_CLASS_LABELS, IncrLabels: dict[str,float] = INCR_LABELS, StartFromScratch: bool = False, ReprColName: str = 'ReprBldID'):
+def BldClassify(CityName: str=None, min_lon=None, max_lon=None, min_lat=None, max_lat=None, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list = STRUCT_CLASS_LABELS, IncrLabels: dict[str,float] = INCR_LABELS, StartFromScratch: bool = False, ReprColName: str = 'ReprBldID'):
     '''
     Classify buildings based on their properties, including structural type, occupancy type, design level, etc.
+
+    Two modes are supported:
+        1. City mode: If CityName is provided, the buildings within the city will be classified.
+        2. Coordinate mode: If min_lon, max_lon, min_lat, max_lat are provided, the buildings within the specified coordinate range will be classified (automatically rounded to 0.01 precision).
+
     Parameters:
-        CityName (str). Name of the city
-        SaveDir (Path). Directory to save the representative buildings
-        TargetLabels (list). Labels that are used for classification
-        IncrLabels (dict). Labels that are used to group buildings together
-        StartFromScratch (bool). If True, the classification will be started from scratch. Otherwise, the classification will be based on the existing representative buildings.
+        CityName (str, optional): Name of the city. If provided, will use city mode.
+        min_lon (float, optional): Minimum longitude of the region. Required for coordinate mode.
+        max_lon (float, optional): Maximum longitude of the region. Required for coordinate mode.
+        min_lat (float, optional): Minimum latitude of the region. Required for coordinate mode.
+        max_lat (float, optional): Maximum latitude of the region. Required for coordinate mode.
+        SaveDir (Path): Directory to save the representative buildings
+        TargetLabels (list): Labels that are used for classification
+        IncrLabels (dict): Labels that are used to group buildings together
+        StartFromScratch (bool): If True, the classification will be started from scratch. Otherwise, the classification will be based on the existing representative buildings.
+        ReprColName (str): Name of the column that stores the representative building ID
     Returns:
-        Bld2ReprBld (dict). Building to representative building mapping
-        ReprBld (pd.DataFrame). Representative building properties. 
+        Bld2ReprBld (dict): Building to representative building mapping
+        ReprBld (pd.DataFrame): Representative building properties. 
     '''    
-    logger.info(f'Starting to classify buildings for {CityName}...')
+
+    if CityName is None and all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
+        # Coordinate mode - round to 0.01 precision
+        min_lon = round(min_lon, 2)
+        max_lon = round(max_lon, 2)
+        min_lat = round(min_lat, 2)
+        max_lat = round(max_lat, 2)
+
+        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+    else:
+        region_name = CityName
+
+    logger.info(f'Starting to classify buildings for {region_name}...')
     start_time = time.time()
+
     
     # create SaveDir if not exists
     if not SaveDir.exists():
@@ -45,8 +68,12 @@ def BldClassify(CityName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list 
         SaveDir.mkdir(parents=True, exist_ok=True)
 
     # existing district file names
-    CityBldDir = Utilities.BLD_DATA_PATH / CityName
-    DistrictNames = [file.stem for file in CityBldDir.glob('*.csv')]
+    RegionBldDir = Utilities.BLD_DATA_PATH / region_name
+    DistrictNames = [file.stem for file in RegionBldDir.glob('*.csv')]
+
+    if not RegionBldDir.exists():
+        logger.error(f'{RegionBldDir} does not exist. Please run prepare_building_data first.')
+        return None
 
     if StartFromScratch:
         # remove the existing representative buildings
@@ -57,14 +84,14 @@ def BldClassify(CityName: str, SaveDir: Path = REPR_BLD_DIR, TargetLabels: list 
             Bld_gdf = Utilities.ReadDistrictBldGDF(CityName, district)
             if ReprColName in Bld_gdf.columns:
                 Bld_gdf.drop(columns=[ReprColName], inplace=True)
-                Utilities.SaveDistrictBldGDF(CityName, district, Bld_gdf)
+                Utilities.SaveDistrictBldGDF(RegionBldDir, district, Bld_gdf)
 
     # classify district by district
     for district in tqdm(DistrictNames):
-        BldClassify_District(CityName, district, SaveDir, TargetLabels, IncrLabels, ReprColName)    
-    
+        BldClassify_District(region_name, district, SaveDir, TargetLabels, IncrLabels, ReprColName)
+
     end_time = time.time()
-    logger.info(f'Building classification for {CityName} completed, total time: {end_time-start_time:.2f} seconds')
+    logger.info(f'Building classification for {region_name} completed, total time: {end_time-start_time:.2f} seconds')
 
 def _CleanIntermidiateFiles():
     '''
@@ -79,16 +106,16 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     '''
     Classify buildings based on their properties, including structural type, occupancy type, design level, etc. For buildings that have been classified, a representative building is assigned to the BldDirtFile.
     Parameters:
-        CityName (str). Name of the city
-        DistrictName (str). Name of the district
-        SaveDir (Path). Directory to save the representative buildings
-        TargetLabels (list). Labels that are used for classification
-        IncrLabels (dict). Labels that are used to group buildings together
-        ReprColName (str). Name of the column that stores the representative building ID
-        overwrite (bool). If True, the representative buildings will be overwritten. 
+        CityName (str): Name of the city
+        DistrictName (str): Name of the district
+        SaveDir (Path): Directory to save the representative buildings
+        TargetLabels (list): Labels that are used for classification
+        IncrLabels (dict): Labels that are used to group buildings together
+        ReprColName (str): Name of the column that stores the representative building ID
+        overwrite (bool): If True, the representative buildings will be overwritten. 
     Returns:
-        Bld2ReprBld (dict). Building to representative building mapping
-        ReprBld (pd.DataFrame). Representative building properties. 
+        Bld2ReprBld (dict): Building to representative building mapping
+        ReprBld (pd.DataFrame): Representative building properties. 
     '''
     
     # if the representative buildings have been generated, skip the classification

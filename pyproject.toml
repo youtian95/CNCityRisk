@@ -10,7 +10,7 @@ authors = [
     { name="Tian You", email="youtian@njtech.edu.cn" }
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -20,12 +20,12 @@ classifiers = [
 ]
 keywords = ["seismic", "risk assessment", "building resilience", "China", "earthquake"]
 dependencies = [
+    "openquake.engine",
     "BldStructPred",
     "MDOFModel",
     "BldCluster",
     "h5py",
     "folium",
-    "openquake.engine",
     "cartopy",
     "dask",
     "geojsoncontour",    
@@ -33,7 +33,7 @@ dependencies = [
     "pypinyin",
     "py7zr",
     "rasterio",
-    "numpy",
+    "numpy==1.26.2",
     "cnmaps",
 ]
 

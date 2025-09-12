@@ -11,25 +11,31 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import tqdm
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
+from typing import Union
 
 Palette = Utilities.FACECOLOR_HEX # color palette: green blue yellow red
 
 
-def plot_BldFootprints_properties(CityName, DistrictName = None, prop = None, Center = None, Radius = None, BaseMap = 'Cartodb Positron', savedir = './') -> folium.Map:
+def plot_BldFootprints_properties(CityName = None, min_lon=None, max_lon=None, min_lat=None, max_lat=None, DistrictName = None, prop = None, BaseMap = 'Cartodb Positron', savedir = './') -> folium.Map:
     '''
     Plot the building footprints of a city.
 
     Usage:
-        plot_BldFootprints_properties(CityName = '武汉', Radius = 5000): plot a rectangular part of the city.
-        plot_BldFootprints_properties(CityName = '武汉'): plot the whole city.
-        plot_BldFootprints_properties(CityName = '武汉', DistrictName = '武昌区'): plot the whole district.
+        City mode:
+            plot_BldFootprints_properties(CityName = '武汉'): plot the whole city.
+            plot_BldFootprints_properties(CityName = '武汉', DistrictName = '武昌区'): plot the whole district.
+        Coordinate mode:
+            plot_BldFootprints_properties(min_lon=114.2, max_lon=114.4, min_lat=30.5, max_lat=30.6): plot a region defined by coordinates.
 
     Parameters:
         CityName (str): Name of the city.
+        min_lon (float, optional): Minimum longitude of the region. Required for coordinate mode.
+        max_lon (float, optional): Maximum longitude of the region. Required for coordinate mode.
+        min_lat (float, optional): Minimum latitude of the region. Required for coordinate mode.
+        max_lat (float, optional): Maximum latitude of the region. Required for coordinate mode.
         DistrictName (str): Name of the district.
         prop (str): Property to plot. Options: 'story', 'structure', 'occupancy', 'area'
-        Center (tuple): Center of the plot.
         Radius (float): Radius of the plot. Unit: meter.
         BaseMap (str): Base map. Options: None, 'Cartodb Positron', 'Amap'. Link to other basemaps: https://leaflet-extras.github.io/leaflet-providers/preview/
         savedir (str): Directory to save the map.
@@ -38,20 +44,22 @@ def plot_BldFootprints_properties(CityName, DistrictName = None, prop = None, Ce
         m (folium.Map): The map object.
     '''
 
-    city_polygon = Utilities.get_city_polygon(CityName)
-    Center = (city_polygon.centroid.y, city_polygon.centroid.x)
-
-    if Radius is not None and DistrictName is not None:
-        raise ValueError("Radius and DistrictName cannot be used together.")
-    elif Radius is None and DistrictName is None:
-        # plot the whole city
+    if CityName is not None and DistrictName is None:
+        Region_polygon = Utilities.get_city_polygon(CityName)
         city_gdf = Utilities.get_CityBldData(CityName)
-        rectangle = city_polygon.envelope
-    elif Radius is not None and DistrictName is None:
-        city_gdf = Utilities.get_CityBldData(CityName)
-        rectangle = Utilities.CreateRectangle(Center, Radius, Radius)
-    elif Radius is None and DistrictName is not None:
+        RegionName = CityName
+    elif CityName is not None and DistrictName is not None:
+        Region_polygon = Utilities.get_district_polygon(CityName, DistrictName)
         city_gdf = Utilities.get_DistrictBldData(CityName, DistrictName)
+        RegionName = CityName + '_' + DistrictName
+    elif all(v is not None for v in [min_lon, max_lon, min_lat, max_lat]):
+        # construct a rectangle polygon
+        Region_polygon = Utilities.get_region_polygon(lat_min=min_lat, lat_max=max_lat, lon_min=min_lon, lon_max=max_lon)
+        city_gdf = Utilities.get_RegionBldData(lat_min=min_lat, lat_max=max_lat, lon_min=min_lon, lon_max=max_lon)
+        RegionName = f'Region_Lon{min_lon}_{max_lon}_Lat{min_lat}_{max_lat}'
+    else:
+        raise ValueError('Please provide either CityName or the coordinate range (min_lon, max_lon, min_lat, max_lat).')
+    Center = (Region_polygon.centroid.y, Region_polygon.centroid.x)
     
     # print('Simplifying building footprints...')
     # city_gdf['geometry'] = city_gdf['geometry'].simplify(tolerance=0.0001) # simplify the geometry so that the map can be loaded faster. 0.0001 is about 10 meters.
@@ -187,15 +195,8 @@ def plot_BldFootprints_properties(CityName, DistrictName = None, prop = None, Ce
             '''
         m.get_root().html.add_child(branca.element.Element(legend_html))
 
-    # boundary of the city
-    Add_CityBoundary_to_FoliumMap(m, CityName)
-
-    if DistrictName is None:
-        # boundary of the rectangle
-        coord_rect = list(rectangle.exterior.coords)
-        coord_rect = [(lat, lon) for lon, lat in coord_rect]
-        rect = folium.PolyLine(coord_rect, color='red', weight=1, dash_array='5')
-        rect.add_to(m)
+    # boundary of the region
+    Add_RegionBoundary_to_FoliumMap(m, Region_polygon)
 
     # map control
     m.add_child(folium.plugins.MeasureControl())
@@ -205,10 +206,7 @@ def plot_BldFootprints_properties(CityName, DistrictName = None, prop = None, Ce
     # Adjust the map bounds
     m.fit_bounds(m.get_bounds())
 
-    if DistrictName is None:
-        mapname = f'{CityName}_{prop}'
-    else:
-        mapname = f'{CityName}_{DistrictName}_{prop}'
+    mapname = f'{RegionName}_{prop}'
 
     mapfilepath = Path(savedir) / f'{mapname}.html'
 
@@ -242,15 +240,19 @@ def plot_histogram_bld(CityName: str, DistrictName: str = None, prop: str = 'sto
     plt.title(f'Histogram of {prop}')
     plt.show()
 
-def Add_CityBoundary_to_FoliumMap(m: folium.Map, CityName: str):
+def Add_CityBoundary_to_FoliumMap(m: folium.Map, CityName: str, DistrictName: str = None):
     '''
     Add the boundary of a city to a folium map.
 
     Parameters:
         m (folium.Map): The map object.
         CityName (str): Name of the city.
+        DistrictName (str, optional): Name of the district. If provided, add the boundary of the district instead.
     '''
-    city_polygon = Utilities.get_city_polygon(CityName)
+    if DistrictName is not None:
+        city_polygon = Utilities.get_district_polygon(CityName, DistrictName)
+    else:
+        city_polygon = Utilities.get_city_polygon(CityName)
     if isinstance(city_polygon, Polygon):
         polygons = [city_polygon]
     else:
@@ -281,3 +283,36 @@ def Add_DistrictBoundary_to_FoliumMap(m: folium.Map, CityName: str, DistrictName
         coord_district = [(lat, lon) for lon, lat in coord_district]
         district = folium.PolyLine(coord_district, color='red', weight=1, dash_array='5')
         district.add_to(m)
+
+def Add_RegionBoundary_to_FoliumMap(m: folium.Map, RegionPolygon: Union[Polygon, MultiPolygon]):
+    '''
+    Add the boundarys of a region to a folium map. The MultiPolygon contains all districts that intersect with the coordinate region. All the boundaries of the districts will be added to the map.
+
+    Parameters:
+        m (folium.Map): The map object.
+        RegionPolygon (shapely.geometry.Polygon or MultiPolygon): The polygon or multipolygon of the region.
+    '''
+    # Handle both Polygon and MultiPolygon cases
+    if isinstance(RegionPolygon, Polygon):
+        polygons = [RegionPolygon]
+    elif isinstance(RegionPolygon, MultiPolygon):
+        polygons = list(RegionPolygon.geoms)
+    else:
+        # If it's a list of polygons
+        if hasattr(RegionPolygon, '__iter__'):
+            polygons = RegionPolygon
+        else:
+            raise ValueError(f"Unsupported geometry type: {type(RegionPolygon)}")
+    
+    # Add each polygon boundary to the map
+    for polygon in polygons:
+        if isinstance(polygon, Polygon):
+            # Add exterior boundary
+            coord_region = list(polygon.exterior.coords)
+            coord_region = [(lat, lon) for lon, lat in coord_region]
+            region_boundary = folium.PolyLine(coord_region, color='blue', weight=2, dash_array='5, 10')
+            region_boundary.add_to(m)
+        elif isinstance(polygon, MultiPolygon):
+            # Recursively handle nested MultiPolygon
+            Add_RegionBoundary_to_FoliumMap(m, polygon)
+

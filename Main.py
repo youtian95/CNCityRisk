@@ -35,7 +35,47 @@ def reproduce_wenchuan2008_event():
     '''
     Reproduce the building losses of the 2008 Wenchuan earthquake event
     '''
-    pass
+
+    # Prepare building data, including structural type, occupancy type...   
+    # lat_min, lat_max = 30.7678, 32.7578
+    # lon_min, lon_max = 102.8883, 105.7345
+    lat_min, lat_max = 32.4142, 32.5468
+    lon_min, lon_max = 105.1165, 105.3136
+
+    if 0:
+        PrepareBldData.prepare_building_data(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max, MinBldArea=50)
+    if 0:        
+        PrepareBldData.EstimateSeismicDesignLevel(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max)
+    if 0:
+        # classify per structural type
+        ClassifyBld.BldClassify(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max)
+    if 0:
+        # classify per PSPA
+        ClassifyBld.BldClassify(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
+
+    # Figures: plot city buildings
+    if 0:
+        plot_city.plot_BldFootprints_properties(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max, prop = 'structure')
+
+    # IDA analysis for individual representative buildings
+    if 0:
+        IDA_ReprBld.IDA_analysis(NumPool=4)
+
+    # Seismic loss simulation for individual representative buildings
+    if 0:
+        BldPSPA_ReprBld.LossAssess()
+
+    # IM field simulation
+    if 1:
+        IMSim.RegionIMSimFromEvents(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008')
+    if 1:
+        IMSim.Plot_IM_Spatial_Region(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008', median=True)
+
+    # Regional seismic loss simulation
+    if 0:
+        Bld_gdf = Utilities.get_RegionBldData(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max)
+        RegionalLossSim.simulate_regional_losses(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008', Bld_gdf=Bld_gdf, losstype='DS_Struct')
+
 
 def analyze_1_city(CityName = '重庆'):
 
@@ -86,30 +126,32 @@ def analyze_1_city(CityName = '重庆'):
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
-    if 1:
+    if 0:
         Bld_gdf = Utilities.get_CityBldData(CityName)
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct')
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total')
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime')
 
     # Risk: annualized loss calculation
-    if 0:
+    if 1:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
     # Create maps for displaying building losses
-    if 0:
-        CreateRegionalMaps.create_mapdata_IM(CityName)
-    if 0:
-        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct')
+    if 1:
+        CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
+    if 1:
+        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
 
     # Create statistics for regional losses
-    if 0:
+    if 1:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
-    if 0:
+    if 1:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')
-    if 0:
+    if 1:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairTime')
 
 if __name__ == '__main__':    
 
-    analyze_1_city()
+    # analyze_1_city()
+
+    reproduce_wenchuan2008_event()

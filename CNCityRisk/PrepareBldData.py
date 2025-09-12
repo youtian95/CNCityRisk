@@ -6,6 +6,7 @@ import re
 import pandas as pd
 import numpy as np
 import time
+from shapely.geometry import box
 
 from .Utilities import *
 from .Logger import get_logger
@@ -15,51 +16,137 @@ from MDOFModel.MDOF_CN import MDOF_CN
 logger = get_logger('PrepareBldData')
 
 
-def prepare_building_data(CityName, MinBldArea = None):
+def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=None, max_lat=None, MinBldArea=None):
     '''
     Prepare building data, including structural type, occupancy type, design level.
+    This function supports two modes of operation:
+    1. City mode: Provide CityName to process all districts in a specific city
+    2. Coordinate mode: Provide min_lon, max_lon, min_lat, max_lat to process districts within specified coordinates (automatically rounded to 0.01 precision)
+    
     Parameters:
-        CityName (str): Name of the city.
-        MinBldArea (float): Minimum area of buildings to be considered. Unit: square meter.
+        CityName (str, optional): Name of the city. If provided, will use city mode.
+        min_lon (float, optional): Minimum longitude of the region. Required for coordinate mode.
+        max_lon (float, optional): Maximum longitude of the region. Required for coordinate mode.
+        min_lat (float, optional): Minimum latitude of the region. Required for coordinate mode.
+        max_lat (float, optional): Maximum latitude of the region. Required for coordinate mode.
+        MinBldArea (float, optional): Minimum area of buildings to be considered. Unit: square meter.
     Returns:
         None. A folder containing csv files. Each csv file contains the building data of the city. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
     '''
-    logger.info(f'Starting to prepare building data for {CityName}...')
-    start_time = time.time()
-    
-    # Get the province name
-    df = addressparser.transform([CityName])
-    ProfName = df['省'][0].replace('省', '').replace('市', '')
-    ProfName = ''.join(lazy_pinyin(ProfName))
-    logger.debug(f'Corresponding province: {ProfName}')
+    # Determine which mode to use
+    if CityName is not None:
+        # City mode
+        logger.info(f'Starting to prepare building data for city {CityName}...')
+        start_time = time.time()
+        
+        # Get the province name
+        df = addressparser.transform([CityName])
+        ProfName = df['省'][0].replace('省', '').replace('市', '')
+        ProfName = ''.join(lazy_pinyin(ProfName))
+        logger.debug(f'Corresponding province: {ProfName}')
 
-    # get all the districts
-    districts_gdf = get_DistrictsOfCity_polygons(CityName)
-    logger.info(f'Found {len(districts_gdf)} districts')   
-    # create a new folder for the city if not exist
-    CityDir = BLD_DATA_PATH / CityName
-    CityDir.mkdir(parents=True, exist_ok=True)
-    logger.debug(f'Created city data directory: {CityDir}')
+        # get all the districts
+        districts_gdf = get_DistrictsOfCity_polygons(CityName)
+        logger.info(f'Found {len(districts_gdf)} districts')   
+        
+        # create a new folder for the city if not exist
+        CityDir = BLD_DATA_PATH / CityName
+        CityDir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f'Created city data directory: {CityDir}')
 
-    # Read the building data district by district
-    prof_file= list(BLD_FOOTPRINT_PATH.glob(f'**/{ProfName}.shp'))[0]
-    logger.debug(f'Found province building footprint file: {prof_file}')
+        # Read the building data district by district
+        prof_file = list(BLD_FOOTPRINT_PATH.glob(f'**/{ProfName}.shp'))[0]
+        logger.debug(f'Found province building footprint file: {prof_file}')
+        
+        # Use city mode
+        is_coordinate_mode = False
+        
+    elif all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
+        # Coordinate mode - round to 0.01 precision
+        min_lon = round(min_lon, 2)
+        max_lon = round(max_lon, 2)
+        min_lat = round(min_lat, 2)
+        max_lat = round(max_lat, 2)
+        
+        # Generate region name from coordinates
+        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+        
+        logger.info(f'Starting to prepare building data for coordinate region {region_name} (lon: {min_lon}-{max_lon}, lat: {min_lat}-{max_lat})...')
+        start_time = time.time()
 
+        districts_gdf = get_DistrictsOfRegion_polygons(min_lat, max_lat, min_lon, max_lon)
+
+        logger.info(f'Found {len(districts_gdf)} districts in the specified coordinate region')
+
+        # Get all unique provinces in the region to determine which shapefile to use
+        provinces_in_region = districts_gdf['pr_name'].unique()
+        logger.debug(f'Provinces in region: {list(provinces_in_region)}')
+        
+        # Use coordinate mode
+        is_coordinate_mode = True
+        prof_file = None  # Will be determined per district
+        
+    else:
+        raise ValueError("Invalid parameters. Either provide 'CityName' for city mode, or provide 'min_lon', 'max_lon', 'min_lat', 'max_lat' for coordinate mode.")
+
+    # Process each district
     for i in range(len(districts_gdf)):
-        # district name
-        districtname = districts_gdf.iloc[i]["dt_name"]
+        # district name and info
+        district_row = districts_gdf.iloc[i]
+        districtname = district_row["dt_name"]
+        
+        if is_coordinate_mode:
+            # Coordinate mode: Use coordinate-based region folder
+            city_name = district_row["ct_name"]
+            province_name = district_row["pr_name"]
+            
+            # Create coordinate region directory if not exists
+            RegionDir = BLD_DATA_PATH / region_name
+            RegionDir.mkdir(parents=True, exist_ok=True)
+            
+            # Use combined city-district name as file identifier
+            file_identifier = f"{city_name}_{districtname}"
+            
+            logger.info(f'Processing district: {city_name}-{districtname} (coordinate mode)')
+            district_start_time = time.time()
 
-        logger.info(f'Processing district: {CityName}-{districtname}')
-        district_start_time = time.time()
+            # Read district building data if exists (region_name/city_district.csv)
+            district_gdf = ReadDistrictBldGDF(region_name, file_identifier)
+        else:
+            # City mode: use original logic
+            city_name = CityName
+            file_identifier = districtname
+            
+            logger.info(f'Processing district: {CityName}-{districtname}')
+            district_start_time = time.time()
 
-        # read district building data if exists
-        district_gdf = ReadDistrictBldGDF(CityName, districtname)
+            # Read district building data if exists
+            district_gdf = ReadDistrictBldGDF(CityName, file_identifier)
 
         # read district building data from shapefile
         if district_gdf is None:
             logger.info(f'District {districtname} data does not exist, reading from province shapefile')
-            district_polygon = districts_gdf.iloc[i].geometry
-            district_gdf = gpd.read_file(prof_file, mask=district_polygon)
+            
+            if is_coordinate_mode:
+                # Coordinate mode: get province shapefile dynamically
+                prov_name_clean = province_name.replace('省', '').replace('市', '').replace('自治区', '').replace('特别行政区', '')
+                prov_name_pinyin = ''.join(lazy_pinyin(prov_name_clean))
+                logger.debug(f'Province name for shapefile: {prov_name_pinyin}')
+                
+                # Find the corresponding province shapefile
+                prof_files = list(BLD_FOOTPRINT_PATH.glob(f'**/{prov_name_pinyin}.shp'))
+                if not prof_files:
+                    logger.warning(f'Province shapefile not found for {prov_name_pinyin}, skipping district {districtname}')
+                    continue
+                
+                current_prof_file = prof_files[0]
+                logger.debug(f'Found province building footprint file: {current_prof_file}')
+            else:
+                # City mode: use pre-determined shapefile
+                current_prof_file = prof_file
+            
+            district_polygon = district_row.geometry
+            district_gdf = gpd.read_file(current_prof_file, mask=district_polygon)
             district_gdf.columns = district_gdf.columns.str.lower()
             
             # 处理建筑数据
@@ -97,35 +184,60 @@ def prepare_building_data(CityName, MinBldArea = None):
                 old_count = len(district_gdf)
                 district_gdf = district_gdf[district_gdf['area'].astype(float) >= MinBldArea]
                 logger.debug(f'Filtered buildings count: {len(district_gdf)}/{old_count}')
-                SaveDistrictBldGDF(CityName, districtname, district_gdf)        # get POI
+                if is_coordinate_mode:
+                    SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
+                else:
+                    SaveDistrictBldGDF(city_name, file_identifier, district_gdf)        
+                
+        # get POI
+        POI_available = False
         if 'POI' not in district_gdf.columns:
             logger.info(f'Getting POI data for district {districtname}')
-            district_gdf = SearchBldPOI_Local(CityName, district_gdf)
-            SaveDistrictBldGDF(CityName, districtname, district_gdf)
+            district_gdf_new = SearchBldPOI_Local(city_name, district_gdf)
+            if district_gdf_new is not None:
+                district_gdf = district_gdf_new
+                POI_available = True
+            if is_coordinate_mode:
+                SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
+            else:
+                SaveDistrictBldGDF(city_name, file_identifier, district_gdf)
 
         # predict building structure type
         if 'structure' not in district_gdf.columns:
             logger.info(f'Predicting building structure types for district {districtname}')
-            district_gdf = PredictBldStructuralType(district_gdf, UsePOI=True)
-            SaveDistrictBldGDF(CityName, districtname, district_gdf)
+            UsePOI = POI_available
+            district_gdf = PredictBldStructuralType(district_gdf, UsePOI=UsePOI)
+            if is_coordinate_mode:
+                SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
+            else:
+                SaveDistrictBldGDF(city_name, file_identifier, district_gdf)
 
         # get nearest POI
-        if 'POI_Nearest' not in district_gdf.columns:
+        if POI_available and ('POI_Nearest' not in district_gdf.columns):
             logger.info(f'Getting nearest POI for buildings in district {districtname}')
-            district_gdf = SearchBldNearestPOI_Local(CityName, district_gdf)
-            SaveDistrictBldGDF(CityName, districtname, district_gdf)
+            district_gdf = SearchBldNearestPOI_Local(city_name, district_gdf)
+            if is_coordinate_mode:
+                SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
+            else:
+                SaveDistrictBldGDF(city_name, file_identifier, district_gdf)
 
         # derive building occupancy type from POI data
         if 'occupancy' not in district_gdf.columns:
             logger.info(f'Deriving building occupancy types for district {districtname}')
-            district_gdf = DeriveBldOccupancyType(CityName, district_gdf)
-            SaveDistrictBldGDF(CityName, districtname, district_gdf)
+            district_gdf = DeriveBldOccupancyType(district_gdf)
+            if is_coordinate_mode:
+                SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
+            else:
+                SaveDistrictBldGDF(city_name, file_identifier, district_gdf)
             
         district_end_time = time.time()
         logger.info(f'District {districtname} processing completed, time: {district_end_time-district_start_time:.2f} seconds')
 
     end_time = time.time()
-    logger.info(f'Building data preparation for {CityName} completed, total time: {end_time-start_time:.2f} seconds')
+    if is_coordinate_mode:
+        logger.info(f'Building data preparation for coordinate region {region_name} completed, total time: {end_time-start_time:.2f} seconds')
+    else:
+        logger.info(f'Building data preparation for city {CityName} completed, total time: {end_time-start_time:.2f} seconds')
 
 def GetDesignLevelAndEQGroupbyLoc(CityName: str, DistrictName: str):
     '''
@@ -231,29 +343,107 @@ def _EstimateSeismicDesignLevel(CityName, DistrictName, overwrite=False):
     logger.debug(f'Saving building data for {CityName}-{DistrictName}')
     SaveDistrictBldGDF(CityName, DistrictName, Bld_gdf)
 
-def EstimateSeismicDesignLevel(CityName):
+def _EstimateSeismicDesignLevel_Coordinate(RegionName, FileIdentifier, CityName, DistrictName, overwrite=False):
+    '''
+    Estimate the seismic design level of buildings for coordinate mode. 'SeismicDesignLevel', 'EQGroup', 'SiteClass' columns will be added to the building data.
+    Parameters:
+        RegionName (str): Name of the coordinate region folder.
+        FileIdentifier (str): File identifier (city_district format).
+        CityName (str): Name of the city.
+        DistrictName (str): Name of the district.
+        overwrite (bool): Whether to overwrite the existing data. Default is False.
+    '''    
+    logger.debug(f'Reading building data for {RegionName}/{FileIdentifier}')
+    Bld_gdf: gpd.GeoDataFrame = ReadDistrictBldGDF(RegionName, FileIdentifier)
+
+    # check if the 'SeismicDesignLevel', 'EQGroup', 'SiteClass' columns exist
+    if not overwrite and 'SeismicDesignLevel' in Bld_gdf.columns and 'EQGroup' in Bld_gdf.columns and 'SiteClass' in Bld_gdf.columns:
+        logger.debug(f'Building data for {RegionName}/{FileIdentifier} already contains seismic design level, earthquake group and site class. Skipping...')
+        return
+
+    # get seismic design level and EQ group
+    logger.debug(f'Getting seismic design level and earthquake group')
+    SeismicDesignLevel, EQGroup = GetDesignLevelAndEQGroupbyLoc(CityName, DistrictName)
+    logger.debug(f'Seismic design level: {SeismicDesignLevel}, Earthquake group: {EQGroup}')
+    Bld_gdf['SeismicDesignLevel'] = SeismicDesignLevel
+    Bld_gdf['EQGroup'] = EQGroup
+
+    # get site class
+    logger.debug(f'Calculating site class')
+    SiteClass = GetSiteClassbyLoc(Bld_gdf['longitude'].to_list(), Bld_gdf['latitude'].to_list())
+    Bld_gdf['SiteClass'] = SiteClass
+    
+    logger.debug(f'Saving building data for {RegionName}/{FileIdentifier}')
+    SaveDistrictBldGDF(RegionName, FileIdentifier, Bld_gdf)
+
+def EstimateSeismicDesignLevel(CityName=None, min_lon=None, max_lon=None, min_lat=None, max_lat=None):
     '''
     Estimate the seismic design level of buildings based on city location and building properties. 'SeismicDesignLevel', 'EQGroup', 'SiteClass' columns will be added to the building data.
+    This function supports two modes:
+    1. City mode: Provide CityName to process all districts in a specific city
+    2. Coordinate mode: Provide min_lon, max_lon, min_lat, max_lat to process districts within specified coordinates (automatically rounded to 0.01 precision)
+    
     Parameters:
-        CityName (str): Name of the city.
+        CityName (str, optional): Name of the city. If provided, will use city mode.
+        min_lon (float, optional): Minimum longitude of the region. Required for coordinate mode.
+        max_lon (float, optional): Maximum longitude of the region. Required for coordinate mode.
+        min_lat (float, optional): Minimum latitude of the region. Required for coordinate mode.
+        max_lat (float, optional): Maximum latitude of the region. Required for coordinate mode.
     '''    
-    logger.info(f'Starting to estimate seismic design level, earthquake group and site class for {CityName}...')
-    start_time = time.time()
+    if CityName is not None:
+        # City mode - original logic
+        logger.info(f'Starting to estimate seismic design level, earthquake group and site class for city {CityName}...')
+        start_time = time.time()
 
-    # get all the districts
-    districts_gdf = get_DistrictsOfCity_polygons(CityName)
-    logger.info(f'Found {len(districts_gdf)} districts')
-    
-    for i in tqdm(range(len(districts_gdf))):
-        # district name
-        districtname = districts_gdf.iloc[i]["dt_name"]
-        logger.debug(f'Processing district: {districtname}')
-        district_start = time.time()
+        # get all the districts
+        districts_gdf = get_DistrictsOfCity_polygons(CityName)
+        logger.info(f'Found {len(districts_gdf)} districts')
         
-        _EstimateSeismicDesignLevel(CityName, districtname)
+        for i in tqdm(range(len(districts_gdf))):
+            # district name
+            districtname = districts_gdf.iloc[i]["dt_name"]
+            
+            _EstimateSeismicDesignLevel(CityName, districtname)
         
-        district_end = time.time()
-        logger.debug(f'District {districtname} processing completed, time: {district_end-district_start:.2f} seconds')
-    
-    end_time = time.time()
-    logger.info(f'Seismic design level estimation for {CityName} completed, total time: {end_time-start_time:.2f} seconds')
+        end_time = time.time()
+        logger.info(f'Seismic design level estimation for city {CityName} completed, total time: {end_time-start_time:.2f} seconds')
+        
+    elif all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
+        # Coordinate mode - round to 0.01 precision
+        min_lon = round(min_lon, 2)
+        max_lon = round(max_lon, 2)
+        min_lat = round(min_lat, 2)
+        max_lat = round(max_lat, 2)
+        
+        # Generate region name from coordinates
+        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+        
+        logger.info(f'Starting to estimate seismic design level, earthquake group and site class for coordinate region {region_name}...')
+        start_time = time.time()
+
+        districts_gdf = get_DistrictsOfRegion_polygons(min_lat, max_lat, min_lon, max_lon)
+
+        logger.info(f'Found {len(districts_gdf)} districts in the coordinate region')
+        
+        for i in tqdm(range(len(districts_gdf))):
+            district_row = districts_gdf.iloc[i]
+            city_name = district_row["ct_name"]
+            district_name = district_row["dt_name"]
+            
+            # Use combined city-district name as file identifier
+            file_identifier = f"{city_name}_{district_name}"
+            
+            # Check if the region directory and district file exist
+            region_dir = BLD_DATA_PATH / region_name
+            if not region_dir.exists() or not (region_dir / f'{file_identifier}.csv').exists():
+                logger.warning(f'District data not found for {region_name}/{file_identifier}, skipping')
+                continue
+            
+            # Use a modified version of _EstimateSeismicDesignLevel for coordinate mode
+            _EstimateSeismicDesignLevel_Coordinate(region_name, file_identifier, city_name, district_name)
+        
+        end_time = time.time()
+        logger.info(f'Seismic design level estimation for coordinate region {region_name} completed, total time: {end_time-start_time:.2f} seconds')
+    else:
+        raise ValueError("Either provide 'CityName' for city mode, or provide 'min_lon', 'max_lon', 'min_lat', 'max_lat' for coordinate mode")
+

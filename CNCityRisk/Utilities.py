@@ -1,7 +1,7 @@
 from pathlib import Path
 import math
 import geopandas as gpd
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, MultiPolygon
 import addressparser
 from pypinyin import lazy_pinyin
 from joblib import load
@@ -19,6 +19,7 @@ from packaging import version
 import re
 from typing import Optional, Tuple, List, Dict, Any
 import warnings
+from shapely.geometry import box
 
 
 # API key
@@ -39,8 +40,10 @@ BLD_DATA_PATH = (Path(__file__).parent / './Data/BldData').resolve()
 np_version_obj = version.parse(np.__version__)
 if np_version_obj < version.parse('1.27.0'):
     TRAINED_RF_BLDSTRUCT = Path(BldStructPred.__file__).parent / 'data/TrainedRF_numpy_v_1_26.joblib'
+    TRAINED_RF_BLDSTRUCT_NOPOI = Path(BldStructPred.__file__).parent / 'data/TrainedRF_noPOI_numpy_v_1_26.joblib'
 else:
     TRAINED_RF_BLDSTRUCT = Path(BldStructPred.__file__).parent / 'data/TrainedRF.joblib'
+    TRAINED_RF_BLDSTRUCT_NOPOI = Path(BldStructPred.__file__).parent / 'data/TrainedRF_noPOI.joblib'
 TRAINED_RF_BLDSTRUCT = TRAINED_RF_BLDSTRUCT.resolve()
 MAP_POI_OCCUPANCY_PATH = (Path(__file__).parent / './Data/高德POI分类与HazusOccupancy对照表.xlsx').resolve()
 GB50011_A_FILE = (Path(__file__).parent / './Data/GB50011-2010(2016)-Appendix-A.csv').resolve()
@@ -95,6 +98,34 @@ def height2story(height, Round = True):
         story = height/3.0
 
     return story
+
+def get_DistrictsOfRegion_polygons(lat_min, lat_max, lon_min, lon_max) -> gpd.GeoDataFrame:
+    '''
+    Get the polygons of districts in a coordinate region.
+    Parameters:
+        lat_min (float): Minimum latitude of the region.
+        lat_max (float): Maximum latitude of the region.
+        lon_min (float): Minimum longitude of the region.
+        lon_max (float): Maximum longitude of the region.
+    Returns:
+        districts_gdf (geopandas.geodataframe.GeoDataFrame): The polygons of districts in the region.
+    '''
+
+    # Create a bounding box polygon
+    bbox = box(lon_min, lat_min, lon_max, lat_max)
+
+    # Read district shapefile and find districts within the bounding box
+    district_shapefile = gpd.read_file(CHINA_ADMINDIVISON_SHP/'4. District'/'district.shp')
+    district_shapefile = district_shapefile.to_crs(epsg=4326)  # Ensure it's in WGS84
+    
+    # Find districts that intersect with the bounding box
+    districts_gdf = district_shapefile[district_shapefile.intersects(bbox)]
+    
+    if districts_gdf.empty:
+        raise ValueError(f'No districts found in the specified coordinate region')
+    
+    return districts_gdf
+        
 
 def get_DistrictsOfCity_polygons(CityName, N_city = 1) -> gpd.GeoDataFrame:
     '''
@@ -187,6 +218,45 @@ def get_city_polygon(CityName, N_city: int = 1):
     
     return city_polygon
 
+def get_region_polygon(lat_min, lat_max, lon_min, lon_max) -> MultiPolygon:
+    '''
+    Get a MultiPolygon of all districts that intersect with a coordinate region.
+    Parameters:
+        lat_min (float): Minimum latitude of the region.
+        lat_max (float): Maximum latitude of the region.
+        lon_min (float): Minimum longitude of the region.
+        lon_max (float): Maximum longitude of the region.
+    Returns:
+        region_polygon (shapely.geometry.multipolygon.MultiPolygon): The polygon of the region.
+    '''
+    districts_gdf = get_DistrictsOfRegion_polygons(lat_min, lat_max, lon_min, lon_max)
+    
+    # Extract all district geometries
+    district_geometries = districts_gdf.geometry.tolist()
+    
+    # Create a MultiPolygon from all district geometries
+    if len(district_geometries) == 1:
+        # If only one district, check if it's already a MultiPolygon
+        if isinstance(district_geometries[0], MultiPolygon):
+            region_polygon = district_geometries[0]
+        else:
+            # Convert single Polygon to MultiPolygon
+            region_polygon = MultiPolygon([district_geometries[0]])
+    else:
+        # Multiple districts - create MultiPolygon from all geometries
+        polygons = []
+        for geom in district_geometries:
+            if isinstance(geom, MultiPolygon):
+                # If geometry is already MultiPolygon, add all its constituent polygons
+                polygons.extend(list(geom.geoms))
+            else:
+                # If geometry is Polygon, add it directly
+                polygons.append(geom)
+        region_polygon = MultiPolygon(polygons)
+    
+    return region_polygon
+    
+
 def get_DistrictBldData(CityName, DistrictName, columns = None):    
     '''
     Get the building data of a district.
@@ -226,6 +296,28 @@ def get_rows_CityBldData(CityName) -> int:
         row_count += len(row_district_gdf)
 
     return row_count
+
+def get_RegionBldData(lat_min, lat_max, lon_min, lon_max, columns = None) -> gpd.GeoDataFrame:
+    '''
+    Get the building data of a coordinate region.
+    Parameters:
+        lat_min (float): Minimum latitude of the region.
+        lat_max (float): Maximum latitude of the region.
+        lon_min (float): Minimum longitude of the region.
+        lon_max (float): Maximum longitude of the region.
+        columns (list): Columns to read from the csv file. Default is None, which reads all columns.
+    Returns:
+        region_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the region. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
+    '''
+     # Coordinate mode - round to 0.01 precision
+    min_lon = round(lon_min, 2)
+    max_lon = round(lon_max, 2)
+    min_lat = round(lat_min, 2)
+    max_lat = round(lat_max, 2)
+    RegionName = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+    region_gdf = get_CityBldData(CityName=RegionName, columns=columns)
+
+    return region_gdf
 
 def get_CityBldData(CityName, columns = None) -> gpd.GeoDataFrame:
     '''
@@ -365,12 +457,13 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
         types: str. '|' separated POI types. e.g. '商务住宅|住宿服务'
         maxPOI: int. Maximum number of POI to return.
     Returns:
-        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, POI, geometry
+        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, POI, geometry. If no POI data found, None is returned.
     '''
 
     CityPOIDir = list(POI_AMAP_PATH.glob(f'**/*{CityName}*'))
     if not CityPOIDir:
-        raise Exception(f"POI data not found for city {CityName}.")
+        warnings.warn(f"POI data not found for city {CityName}.", UserWarning)
+        return None
     elif len(CityPOIDir) > 1:
         raise Exception(f"Multiple POI data found for city {CityName}.")
     else:
@@ -440,10 +533,11 @@ def PredictBldStructuralType(Bld_gdf, UsePOI = False):
     if UsePOI:
         POI = Bld_gdf['POI'].values.tolist()
     # predict building structure type
-    clf = load(TRAINED_RF_BLDSTRUCT)
     if UsePOI:
+        clf = load(TRAINED_RF_BLDSTRUCT)
         Y_struct = clf.predict(Area, Floor, Footprint, POI)
     else:
+        clf = load(TRAINED_RF_BLDSTRUCT_NOPOI)
         Y_struct = clf.predict(Area, Floor, Footprint)
     Bld_gdf['structure'] = Y_struct
 
@@ -474,11 +568,10 @@ def SearchBldNearestPOI_Local(CityName, Bld_gdf, radius=500):
 
     return Bld_gdf
 
-def DeriveBldOccupancyType(CityName: str, Bld_gdf: gpd.GeoDataFrame):
+def DeriveBldOccupancyType(Bld_gdf: gpd.GeoDataFrame):
     '''
     Derive the occupancy type of buildings from POI data.
     Parameters:
-        CityName (str): Name of the city.
         Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, story, area, geometry, POI, POI_Nearest
     Returns:
         Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, story, area, structure, occupancy, geometry, POI, POI_Nearest
@@ -522,7 +615,11 @@ def DeriveBldOccupancyType(CityName: str, Bld_gdf: gpd.GeoDataFrame):
                     return poi_to_ocpc[poi[0]][cat2_1st][cat3_1st]
             else:
                 return None
-    Bld_gdf['occupancy'] = Bld_gdf['POI_Nearest'].apply(get_occupancy_type, poi_to_ocpc=POI_to_OCPC)
+    
+    if 'POI_Nearest' in Bld_gdf.columns:
+        Bld_gdf['occupancy'] = Bld_gdf['POI_Nearest'].apply(get_occupancy_type, poi_to_ocpc=POI_to_OCPC)
+    else:
+        Bld_gdf['occupancy'] = None
 
     return Bld_gdf
 

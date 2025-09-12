@@ -77,6 +77,37 @@ logger = Logger.get_logger('RegionalLossSim')
 def simulate_regional_losses(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
     '''
     使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
+
+    Parameters:
+        CityName (str): 城市名称，用于获取IM模拟数据和确定HDF5文件路径
+        Bld_gdf (gpd.GeoDataFrame): 包含建筑数据的GeoDataFrame
+        losstype (str): 要模拟的损失类型。选项包括 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime'
+        OutputDir (Path): 保存输出文件的目录。默认为 'results/RegionalLossSim/'
+        ChunkSize (int): 每个chunk中要处理的建筑数量。默认为10000
+        n_processes (int): 使用的进程数。如果为None，则使用4个
+    
+    Results:
+        BldLoss_{losstype}_ByRupture.hdf5: 包含按震源分组的模拟区域损失的HDF5文件
+            group_rup_{i}: 震源i的数据组
+                loss_matrix: (N_bld x N_sim) 损失矩阵，行为建筑，列为该震源的模拟
+                rupid: 震源ID字符串
+                iSim_indices: 该震源在全局模拟中的索引列表
+                rup_info: 震源的详细信息（震级、位置等）
+    '''
+    
+    simulate_regional_losses_multiprocess(CityName, Bld_gdf, losstype, OutputDir, ChunkSize, n_processes)
+
+    reorganize_BldLoss_by_rupture(CityName, losstype, OutputDir, OutputDir, chunk_size=ChunkSize)
+
+    # clean up the intermediate file
+    interm_file = OutputDir / CityName / f'BldLoss_{losstype}.hdf5'
+    if interm_file.exists():
+        interm_file.unlink()
+        logger.info(f"Deleted intermediate file: {interm_file}")
+
+def _simulate_regional_losses(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
+    '''
+    使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
     每个进程内部从dask数组读取所需的数据片段，避免大数组的完整复制。
     直接按震源（i_rup）分组存储数据，无需后续重组操作。
 
@@ -370,7 +401,7 @@ def _process_BldLoss_chunk_worker_by_rupture(args):
     
     return len(bld_chunk)
 
-# deprecated
+
 def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize = 10000) -> None:
     '''
     单进程版本：基于概率性地震性能评估(PSPA)结果模拟区域地震损失。
@@ -461,7 +492,7 @@ def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataF
     output_file = OutputDir / f'BldLoss_{losstype}.hdf5'
     logger.info(f"Single-process regional loss simulation completed. Results saved to: {output_file}")
 
-# deprecated
+
 def simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 10000, n_processes: int = None) -> None:
     '''
     使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
