@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "CNCityRisk"
-version = "0.3.1"
+version = "0.3.2"
 description = "Regional seismic risk assessment of buildings of major cities in China"
 authors = [
     { name="Tian You", email="youtian@njtech.edu.cn" }

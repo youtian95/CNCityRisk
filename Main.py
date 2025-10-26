@@ -37,10 +37,8 @@ def reproduce_wenchuan2008_event():
     '''
 
     # Prepare building data, including structural type, occupancy type...   
-    # lat_min, lat_max = 30.7678, 32.7578
-    # lon_min, lon_max = 102.8883, 105.7345
-    lat_min, lat_max = 32.4142, 32.5468
-    lon_min, lon_max = 105.1165, 105.3136
+    lat_min, lat_max = 30.7678, 32.7578
+    lon_min, lon_max = 102.8883, 105.7345
 
     if 0:
         PrepareBldData.prepare_building_data(min_lon=lon_min, max_lon=lon_max, min_lat=lat_min, max_lat=lat_max, MinBldArea=50)
@@ -66,18 +64,27 @@ def reproduce_wenchuan2008_event():
         BldPSPA_ReprBld.LossAssess()
 
     # IM field simulation
-    if 1:
-        IMSim.RegionIMSimFromEvents(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008')
-    if 1:
-        IMSim.Plot_IM_Spatial_Region(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008', median=True)
+    # 汶川地震北川-映秀断裂带（张勇等，2008）
+    # 'M', 'N_sim', 'lon_Hypo', 'lat_Hypo', 'W_km', 'length_km', 'strike', 'dip', 'lambda_degree', 'Zhyp_km'
+    event = {'M':7.9, 'N_sim':100, 'lon_Hypo':104.1055, 'lat_Hypo':31.647, 'Zhyp_km':15.5, 'length_km': 240, 'W_km': 999, 'strike': 225, 'dip': 39, 'lambda_degree': 120}
+    if 0:
+        IMSim.RegionBldIMSimFromEvents(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event=event)
+    if 0:
+        IMSim.Plot_IM_Spatial_City(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, median=True)
 
     # Regional seismic loss simulation
     if 0:
         Bld_gdf = Utilities.get_RegionBldData(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max)
-        RegionalLossSim.simulate_regional_losses(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max, event = 'Wenchuan2008', Bld_gdf=Bld_gdf, losstype='DS_Struct')
+        region_name, _ = Utilities.generate_region_name(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
+        RegionalLossSim.simulate_regional_losses(CityName=region_name, Bld_gdf=Bld_gdf, Event=event, losstype='DS_Struct')
+
+    # collapse rate contour plot
+    if 1:
+        region_name, _ = Utilities.generate_region_name(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
+        CreateRegionalMaps.plot_collapse_rate_contour(CityNameorRegionName=region_name, event=event)
 
 
-def analyze_1_city(CityName = '重庆'):
+def analyze_1_city(CityName):
 
     # Prepare building data, including structural type, occupancy type...    
     if 0:
@@ -126,7 +133,7 @@ def analyze_1_city(CityName = '重庆'):
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
-    if 0:
+    if 1:
         Bld_gdf = Utilities.get_CityBldData(CityName)
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct')
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total')
@@ -137,21 +144,22 @@ def analyze_1_city(CityName = '重庆'):
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
     # Create maps for displaying building losses
-    if 1:
+    if 0:
         CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
     if 1:
         CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
 
     # Create statistics for regional losses
-    if 1:
+    if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
-    if 1:
+    if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')
-    if 1:
+    if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairTime')
 
 if __name__ == '__main__':    
 
-    # analyze_1_city()
+    # analyze_1_city('合肥')
+    # analyze_1_city('武汉')
 
     reproduce_wenchuan2008_event()

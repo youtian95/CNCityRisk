@@ -49,12 +49,7 @@ def BldClassify(CityName: str=None, min_lon=None, max_lon=None, min_lat=None, ma
 
     if CityName is None and all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
         # Coordinate mode - round to 0.01 precision
-        min_lon = round(min_lon, 2)
-        max_lon = round(max_lon, 2)
-        min_lat = round(min_lat, 2)
-        max_lat = round(max_lat, 2)
-
-        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+        region_name, _ = Utilities.generate_region_name(min_lon, max_lon, min_lat, max_lat)
     else:
         region_name = CityName
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 import math
 import geopandas as gpd
-from shapely.geometry import Polygon, Point, MultiPolygon
+from shapely.geometry import box, Polygon, Point, MultiPolygon
 import addressparser
 from pypinyin import lazy_pinyin
 from joblib import load
@@ -19,7 +19,6 @@ from packaging import version
 import re
 from typing import Optional, Tuple, List, Dict, Any
 import warnings
-from shapely.geometry import box
 
 
 # API key
@@ -255,6 +254,32 @@ def get_region_polygon(lat_min, lat_max, lon_min, lon_max) -> MultiPolygon:
         region_polygon = MultiPolygon(polygons)
     
     return region_polygon
+
+
+def generate_region_name(lon_min: float, lon_max: float, lat_min: float, lat_max: float, precision: int = 2) -> Tuple[str, Tuple[float, float, float, float]]:
+    '''
+    Create a standardized region name and rounded bounds for coordinate based regions.
+
+    Parameters:
+        lon_min (float): Minimum longitude of the region.
+        lon_max (float): Maximum longitude of the region.
+        lat_min (float): Minimum latitude of the region.
+        lat_max (float): Maximum latitude of the region.
+        precision (int): Number of decimal places used when rounding the bounds.
+
+    Returns:
+        region_name (str): Region folder name in the format "Region_minLon_maxLon_minLat_maxLat".
+        rounded_bounds (tuple): Rounded bounds as (lon_min, lon_max, lat_min, lat_max).
+    '''
+    lon_min_r = round(lon_min, precision)
+    lon_max_r = round(lon_max, precision)
+    lat_min_r = round(lat_min, precision)
+    lat_max_r = round(lat_max, precision)
+
+    rounded_bounds = (lon_min_r, lon_max_r, lat_min_r, lat_max_r)
+    region_name = f"Region_{lon_min_r}_{lon_max_r}_{lat_min_r}_{lat_max_r}"
+
+    return region_name, rounded_bounds
     
 
 def get_DistrictBldData(CityName, DistrictName, columns = None):    
@@ -309,13 +334,8 @@ def get_RegionBldData(lat_min, lat_max, lon_min, lon_max, columns = None) -> gpd
     Returns:
         region_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the region. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
     '''
-     # Coordinate mode - round to 0.01 precision
-    min_lon = round(lon_min, 2)
-    max_lon = round(lon_max, 2)
-    min_lat = round(lat_min, 2)
-    max_lat = round(lat_max, 2)
-    RegionName = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
-    region_gdf = get_CityBldData(CityName=RegionName, columns=columns)
+    region_name, (min_lon, max_lon, min_lat, max_lat) = generate_region_name(lon_min, lon_max, lat_min, lat_max)
+    region_gdf = get_CityBldData(CityName=region_name, columns=columns)
 
     return region_gdf
 
@@ -786,14 +806,14 @@ class DEMFetcher:
     
     def get_elevation(self, latitude, longitude, buffer = 0.5):
         """
-        Get the elevation data for a specific coordinate point.
+        Get the elevation data for a specific coordinate point. e.g. latitude=34.05, longitude=-118.25, buffer=0.5 will fetch DEM data for the bounding box (34.0, 34.5, -118.5, -118.0). Then the elevation at the point (34.05, -118.25) will be extracted from the DEM data.
         
         Parameters:
             latitude: float or list - Latitude of the point
             longitude: float or list - Longitude of the point
             buffer: float - Buffer around the point to create a bounding box (default is 0.5)
         Returns:
-            elevation: float or list - Elevation of the point in kilometers
+            elevation: float or list - Elevation of the point in meters
         """
         south = math.floor(latitude / buffer) * buffer
         north = math.ceil(latitude / buffer) * buffer
@@ -883,10 +903,17 @@ def CreateMeshedSiteFile(lonMin, lonMax, latMin, latMax, SiteFile = 'SiteFile.tx
 
     # Calculate grid points
     R = 6374000
+    # degrees of one mesh
     lonStep = MeshDist / R / math.cos(math.radians(latMin)) * 180 / math.pi
     latStep = MeshDist / R * 180 / math.pi
-    Nlon = math.ceil((lonMax - lonMin) / lonStep)
-    Nlat = math.ceil((latMax - latMin) / latStep)
+    # number of points in each direction
+    Nlon = math.ceil((lonMax - lonMin) / lonStep) + 1
+    Nlat = math.ceil((latMax - latMin) / latStep) + 1
+    # adjust lonMin and latMin to center the mesh
+    lonMin = lonMin + (lonMax - lonMin - (Nlon - 1) * lonStep) / 2
+    latMin = latMin + (latMax - latMin - (Nlat - 1) * latStep) / 2
+    lonMax = lonMin + (Nlon - 1) * lonStep
+    latMax = latMin + (Nlat - 1) * latStep
 
     # Generate site file
     IDvec = []
@@ -1112,3 +1139,6 @@ def minify_html(html_path):
     except Exception as e:
         print(f"Error compressing HTML: {e}")
         return False
+
+
+

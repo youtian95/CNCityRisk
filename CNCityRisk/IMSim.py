@@ -25,6 +25,7 @@ from tqdm import tqdm
 from typing import Generator, Tuple
 import dask.array as da
 import h5py
+from shapely.geometry import box, Polygon, Point, MultiPolygon
 
 N_SIM_EACH_RUP = 10
 IM_MAT_BLD_FILENAME = 'all_IM_mat_Bld.h5'
@@ -316,9 +317,9 @@ class SpatialIM():
         """
         return ReadEQSourceInfo(self.EQSourceFile)
 
-    def PrepareCityBldData(self, CityName: str, DistrictName: str = None):
+    def PrepareCityBldData(self, CityName: str = None, DistrictName: str = None, min_lon=None, max_lon=None, min_lat=None, max_lat=None):
         '''
-        Prepare building data for a city or a district
+        Prepare building data for a city or a district, or a region
 
         Parameters:
             DistrictName: str - district name
@@ -327,18 +328,22 @@ class SpatialIM():
         Returns:
             self.BldInfo: list - building information. It is a list of dictionaries with keys 'centroid' and 'T'. 'centroid' is a list of [lon, lat], and 'T' is the period.
         '''
-        if DistrictName is None:
-            logger.info(f"Loading building data for city: {CityName}")
-        else:
-            logger.info(f"Loading building data for district: {DistrictName}, {CityName}")
-        
-        print(f"Loading building data for IM simulation...")
 
-        # Building information file
-        if DistrictName is None:
+        if CityName is not None and DistrictName is None:
+            logger.info(f"Loading building data for city: {CityName}")
             BldInfo = Utilities.get_CityBldData(CityName)
+        elif CityName is not None and DistrictName is not None:
+            logger.info(f"Loading building data for district: {DistrictName}, {CityName}")
+            BldInfo = Utilities.get_DistrictBldData(CityName, DistrictName)
+        elif CityName is None and DistrictName is None and None not in (min_lon, max_lon, min_lat, max_lat):
+            region_name, (min_lon, max_lon, min_lat, max_lat) = Utilities.generate_region_name(min_lon, max_lon, min_lat, max_lat)
+            logger.info(
+                f"Loading building data for region {region_name}: lon({min_lon}, {max_lon}), lat({min_lat}, {max_lat})"
+            )
+            BldInfo = Utilities.get_RegionBldData(lat_min=min_lat, lat_max=max_lat, lon_min=min_lon, lon_max=max_lon)
         else:
-            BldInfo = Utilities.ReadDistrictBldGDF(CityName, DistrictName)
+            logger.error("Either CityName or (min_lon, max_lon, min_lat, max_lat) must be provided")
+            raise ValueError("Either CityName or (min_lon, max_lon, min_lat, max_lat) must be provided")
         
         logger.info(f"Loaded {len(BldInfo)} buildings")
         
@@ -911,13 +916,18 @@ def Add_City_IMfield_to_FoliumMap(m: folium.Map, CityName: str, i_rup: int = 0, 
 
     Add_IMfield_to_FoliumMap(m, lonVec, latVec, IM_mat[:, iSim, iTplot - 1], caption=f'Spectral Acceleration (Sa) at T={Tvec[iTplot-1]:.2f} seconds (g)')
 
-def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = None, median:bool = False, BaseMap='Cartodb Positron', SaveFigDir: Path = None, FigFileName: str = None, PlotNow: bool = True) -> Tuple[Path, float]:
+def Plot_IM_Spatial_City(CityName: str=None, lat_min=None, lat_max=None, lon_min=None, lon_max=None, i_rup: int = 0, event: dict = None, iTplot: int = 1, iSim = None, median:bool = False, BaseMap='Cartodb Positron', SaveFigDir: Path = None, FigFileName: str = None, PlotNow: bool = True) -> Tuple[Path, float]:
     '''
-    Plot IM simulation results using folium for a city
+    Plot IM simulation results using folium for a city or a region
 
     Parameters:
-        CityName: str - city name
-        i_rup: int - row index of the rupture to plot. Start from 0
+        CityName: str - city name for city mode; None for region mode
+        lat_min: float - minimum latitude of the region
+        lat_max: float - maximum latitude of the region
+        lon_min: float - minimum longitude of the region
+        lon_max: float - maximum longitude of the region
+        i_rup: int - (for city mode) row index of the rupture to plot. Start from 0
+        event: dict - (for region mode) event information for region mode. It should contain keys 'M', 'lon_Hypo', 'lat_Hypo'
         iTplot: int - index of the period to plot. Start from 1
         iSim: int - index of the simulation to plot. None for random
         median: bool - if True, plot the median IM results
@@ -928,11 +938,17 @@ def Plot_IM_Spatial_City(CityName: str, i_rup: int = 0, iTplot: int = 1, iSim = 
         filepath: Path - path to the saved HTML file
         Sa_period: float - period of the Sa to plot
     '''
-    rup_df = EQsources.ReadCityRuptures(CityName)
-    rup_id = rup_df.iloc[i_rup]['rup_id']
-    IMresultsDir = IM_SIM_DIR / CityName /f'rup_id_{rup_id}/'
+    if CityName is not None:
+        rup_df = EQsources.ReadCityRuptures(CityName)
+        rup_id = rup_df.iloc[i_rup]['rup_id']
+        IMresultsDir = IM_SIM_DIR / CityName /f'rup_id_{rup_id}/'
+        sitefile = IM_SIM_DIR / CityName / 'SiteFile.txt'
+    elif None not in (lat_min, lat_max, lon_min, lon_max):
+        region_name, _ = Utilities.generate_region_name(lon_min, lon_max, lat_min, lat_max)
+        event_name = get_event_name(event)
+        IMresultsDir = IM_SIM_DIR / region_name / event_name
+        sitefile = IM_SIM_DIR / region_name / 'SiteFile.txt'
 
-    sitefile = IM_SIM_DIR / CityName / 'SiteFile.txt'
     IDvec, lonVec, latVec = Utilities.ReadIDofMeshedSiteFile(sitefile)
 
     # read Tvec, IM_mat
@@ -1008,6 +1024,123 @@ def Plot_IM_Spatial(IMresultsDir, lonVec, latVec, Tvec, IM_mat, iTplot=1, iSim=N
         webbrowser.open_new('file://' + str(filename.resolve()))
     
     return filename, Tvec[iTplot-1]
+
+def get_event_name(event: dict) -> str:
+    return f"Event_M{event['M']}_Hypo{event['lon_Hypo']:.2f}_{event['lat_Hypo']:.2f}"
+
+def RegionBldIMSimFromEvents(lat_min, lat_max, lon_min, lon_max, event: dict, MeshDist = 5000, OutputDir=IM_SIM_DIR):
+    '''
+    Simulate IM fields for regional buildings based on a given earthquake event
+
+    Parameters:
+        lat_min: float - minimum latitude of the region
+        lat_max: float - maximum latitude of the region
+        lon_min: float - minimum longitude of the region
+        lon_max: float - maximum longitude of the region
+        event: dict - earthquake event information. Should contain keys (M, N_sim, lon_Hypo, lat_Hypo, W_km, length_km, strike, dip, lambda_degree, Zhyp_km, Fhw=True, ifmedian):
+            'N_sim': int - number of simulations
+            'M': float - Moment Magnitude
+            'lon_Hypo': float - Hypocenter longitude
+            'lat_Hypo': float - Hypocenter latitude
+            'Zhyp_km': float - Hypocenter depth in km relative to sea level
+            'W_km': float - Down-Dip Rupture Width in km
+            'length_km': float - Rupture length in km
+            'strike': float - strike angle in degrees
+            'dip': float - dip angle in degrees
+            'lambda_degree': float - rake angle in degrees
+            'Fhw': bool - if True, use finite fault with hanging wall effect
+            'ifmedian': bool - if True, simulate median IM field
+
+    Resulting files:
+        SiteFile.txt - meshed site file for the region
+        EQSource.txt - earthquake source file
+        IM sim with period*.txt - IM simulation results for each period
+        IM median with period*.txt - median IM results for each period (if ifmedian is True)
+        IM mat.txt - simulated IM values for meshed sites
+        IM_mat_Bld.txt - interpolated IM values for buildings in the region
+    '''
+    # Rounded input bounds keep folder naming consistent when users provide raw coordinates
+    region_name, (lon_min_norm, lon_max_norm, lat_min_norm, lat_max_norm) = Utilities.generate_region_name(lon_min, lon_max, lat_min, lat_max)
+    region_polygon: MultiPolygon = Utilities.get_region_polygon(lat_min_norm, lat_max_norm, lon_min_norm, lon_max_norm)
+    # Polygon envelope bounds cover the full union of intersecting districts for meshing and data prep
+    lon_min_bounds, lat_min_bounds, lon_max_bounds, lat_max_bounds = region_polygon.bounds
+
+    logger.info(
+        f"Starting IM field simulation for region: {region_name} with bounds ({lon_min_bounds:.4f}, {lat_min_bounds:.4f}, {lon_max_bounds:.4f}, {lat_max_bounds:.4f})"
+    )
+    logger.info(f"Event parameters: M={event['M']}, N_sim={event['N_sim']}, Hypo=({event['lon_Hypo']:.4f}, {event['lat_Hypo']:.4f})")
+    
+    # Validate event parameters
+    required_keys = ['M', 'N_sim', 'lon_Hypo', 'lat_Hypo', 'W_km', 'length_km', 'strike', 'dip', 'lambda_degree', 'Zhyp_km']
+    for key in required_keys:
+        if key not in event:
+            raise ValueError(f"Missing required event parameter: {key}")
+    
+    # Set default values for optional parameters
+    event.setdefault('Fhw', True)
+    event.setdefault('ifmedian', False)
+    
+    # Create SpatialIM instance
+    sim = SpatialIM()
+    
+    # Create output directory structure
+    output_dir = Path(OutputDir) / region_name
+    event_dir = output_dir / get_event_name(event)
+    event_dir = output_dir / f"Event_M{event['M']}_Hypo{event['lon_Hypo']:.2f}_{event['lat_Hypo']:.2f}"
+    event_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create meshed site file for the region
+    logger.info(f"Creating meshed site file with mesh distance: {MeshDist}m")
+    SiteFile = output_dir / 'SiteFile.txt'
+    IDvec, lonVec, latVec = sim.CreateMeshedSiteFile(
+        lonMin=lon_min_bounds, lonMax=lon_max_bounds,
+        latMin=lat_min_bounds, latMax=lat_max_bounds,
+        SiteFile=SiteFile, MeshDist=MeshDist
+    )
+    
+    # Create earthquake source file
+    logger.info("Creating earthquake source file")
+    EQSourceFile = event_dir / 'EQSource.txt'
+    sim.CreateSourceFile_StrikeDip(
+        M=event['M'],
+        N_sim=event['N_sim'],
+        lon_Hypo=event['lon_Hypo'],
+        lat_Hypo=event['lat_Hypo'],
+        W_km=event['W_km'],
+        length_km=event['length_km'],
+        strike=event['strike'],
+        dip=event['dip'],
+        lambda_degree=event['lambda_degree'],
+        Zhyp_km=event['Zhyp_km'],
+        Fhw=event['Fhw'],
+        ifmedian=event['ifmedian'],
+        seed=0,
+        region=3,  # China region
+        nPCs=10,
+        EQSourceFile=EQSourceFile
+    )
+    
+    # Set the meshed site file
+    sim.SetMeshedSiteFile(SiteFile)
+    
+    # Run IM field simulation
+    logger.info("Running IM field simulation")
+    sim.IMFieldSim(event_dir, overwrite=True)
+
+    # prepare building data in the region
+    logger.info("Preparing building data in the region")
+    sim.PrepareCityBldData(min_lon=lon_min_norm, max_lon=lon_max_norm, min_lat=lat_min_norm, max_lat=lat_max_norm)
+
+    # Interpolate IM values for buildings in the region
+    sim.InterpIMfromMeshForCity(overwrite=True)
+
+    logger.info(f"IM field simulation completed successfully")
+    logger.info(f"Results shape: {sim.IM_mat.shape}")
+    logger.info(f"Number of sites: {len(IDvec)}")
+    logger.info(f"Number of simulations: {sim.IM_mat.shape[1]}")
+    logger.info(f"Number of periods: {sim.IM_mat.shape[2]}")
+    
+    return
 
 def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int = 500000, overwrite: bool = False):
     '''

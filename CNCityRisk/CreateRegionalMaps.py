@@ -2,6 +2,7 @@ from . import Utilities
 from . import EQsources
 from . import plot_city
 from . import IMSim
+from . import BldPSPA_ReprBld
 from .Utilities import minify_html
 from . import RegionalLossSim
 from .Logger import get_logger
@@ -17,7 +18,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import matplotlib.colors
+from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 from scipy.interpolate import griddata
 import geojsoncontour
@@ -32,6 +33,7 @@ from datetime import datetime
 import subprocess
 import shutil
 import os
+from typing import Tuple
 
 
 # Initialize logger for this module
@@ -267,6 +269,362 @@ def plot_regional_losses(CityName: str, DistrictName: str = None, Bld_gdf: gpd.G
     filepath.unlink()
 
     return m
+
+
+def plot_collapse_rate_contour(
+    CityNameorRegionName: str,
+    event: dict = None,
+    i_rup: int = 0,
+    ResultsDir: str = RegionalLossSim.RESULTDIR,
+    grid_km: float = 10.0
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Figure]:
+    """Plot the mean collapse probability for a selected rupture (city) or event (region).
+
+    The routine first identifies collapse outcomes in the damage-state results (``DS_Struct``) and converts them into per-building collapse probabilities by averaging across the available simulations for the requested rupture or event. The resulting probabilities are then mapped at building centroids, aggregated onto a projected square grid to smooth the field, and finally rendered as filled contours in geographic coordinates. The aggregated grid used for plotting is also written to CSV so that other workflows can reuse the collapse surface directly.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray, matplotlib.figure.Figure]: Arrays of grid-centroid longitude, latitude, the averaged collapse probability, and the rendered Matplotlib figure so callers can further customise or reuse the plot.
+    """
+
+    logger.info(f"Plotting collapse-rate contour for {CityNameorRegionName}")
+
+    try:
+        Bld_gdf = Utilities.get_CityBldData(CityNameorRegionName)
+    except Exception as exc:
+        logger.error(f"Failed to load building data for {CityNameorRegionName}: {exc}")
+        raise
+
+    if Bld_gdf.empty:
+        raise ValueError(f"No building data found for {CityNameorRegionName}")
+
+    collapse_code = BldPSPA_ReprBld.DS_types.index('Complete')
+    results_dir = Path(ResultsDir).resolve()
+    city_dir = results_dir / CityNameorRegionName
+
+    if not city_dir.exists():
+        raise FileNotFoundError(f"Results directory not found: {city_dir}")
+
+    collapse_rates: np.ndarray  # collapse rate for each building
+    title_suffix = ''
+
+    ds_struct_by_rupture = city_dir / 'BldLoss_DS_Struct_ByRupture.hdf5'
+
+    if event is None:
+        if not ds_struct_by_rupture.exists():
+            raise FileNotFoundError(f"City-mode collapse results not found: {ds_struct_by_rupture}")
+        rup_df = EQsources.ReadCityRuptures(CityNameorRegionName)
+        if not (0 <= i_rup < len(rup_df)):
+            raise IndexError(f"i_rup {i_rup} out of range (0-{len(rup_df)-1}) for {CityNameorRegionName}")
+        collapse_rates = _compute_collapse_rate_city(ds_struct_by_rupture, collapse_code, i_rup)
+        title_suffix = f'Rupture #{i_rup} (ID {rup_df.iloc[i_rup]["rup_id"]})'
+    else:
+        event_name = IMSim.get_event_name(event)
+        event_dir = city_dir / event_name
+        if not event_dir.exists():
+            raise FileNotFoundError(f"Event results directory not found: {event_dir}")
+
+        reorganized_file = event_dir / 'BldLoss_DS_Struct_ByRupture.hdf5'
+
+        if not reorganized_file.exists():
+            raise FileNotFoundError(
+                f"Reorganized collapse results not found for event '{event_name}'"
+            )
+
+        collapse_rates = _compute_collapse_rate_event(reorganized_file, Bld_gdf.index.to_numpy(), collapse_code)
+        title_suffix = event_name
+
+    lon = Bld_gdf.geometry.centroid.x.to_numpy()
+    lat = Bld_gdf.geometry.centroid.y.to_numpy()
+
+    valid_mask = np.isfinite(collapse_rates)
+    if not np.any(valid_mask):
+        raise ValueError("Collapse-rate computation produced no finite values")
+
+    lon_valid = lon[valid_mask]
+    lat_valid = lat[valid_mask]
+    collapse_valid = collapse_rates[valid_mask]
+
+    grid_lon, grid_lat, grid_collapse = _aggregate_collapse_to_grid(
+        lon_valid,
+        lat_valid,
+        collapse_valid,
+        grid_km=grid_km,
+        min_points=1
+    )
+
+    if grid_lon.size < 3 or grid_lat.size < 3:
+        raise ValueError("At least three grid cells with collapse data are required to draw a contour plot")
+
+    levels = np.linspace(0.0, 1, 101)
+
+    # file output name
+    output_dir = RESULTDIR / 'CollapseRateContours'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_suffix = title_suffix.replace(' ', '_').replace('/', '-').replace(':', '-') if title_suffix else ''
+    suffix = f'_{safe_suffix}' if safe_suffix else ''
+    base_filename = f'CollapseRate_Contour{suffix}'
+    fig_path = output_dir / f'{base_filename}.pdf'
+    csv_path = output_dir / f'{base_filename}.csv'
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    contour = ax.tricontourf(
+        grid_lon,
+        grid_lat,
+        grid_collapse,
+        levels=levels,
+        cmap='Oranges',
+        alpha=0.85,
+        vmin=0.0,
+        vmax=1.0,
+    )
+
+    plot_bounds = _draw_county_boundaries(ax, grid_lon, grid_lat)
+
+    cbar = fig.colorbar(contour, ax=ax, shrink=0.85)
+    cbar.set_label('Mean Collapse Probability')
+    cbar.set_ticks(np.linspace(0, 1, 11))
+
+    ax.set_xlabel('Longitude (°)')
+    ax.set_ylabel('Latitude (°)')
+    ax.set_aspect('equal', adjustable='datalim')
+    if plot_bounds is not None:
+        lon_min, lon_max, lat_min, lat_max = plot_bounds
+        ax.set_xlim(lon_min, lon_max)
+        ax.set_ylim(lat_min, lat_max)
+    ax.grid(True, linestyle='--', linewidth=0.3, alpha=0.4)
+
+    fig.tight_layout()
+    grid_df = pd.DataFrame({
+        'longitude': grid_lon,
+        'latitude': grid_lat,
+        'mean_collapse_probability': grid_collapse
+    })
+    grid_df.to_csv(csv_path, index=False)
+    fig.savefig(fig_path, format='pdf', bbox_inches='tight')
+
+    logger.info(f"Collapse-rate contour saved to {fig_path}")
+    logger.info(f"Collapse-rate grid data saved to {csv_path}")
+    return grid_lon, grid_lat, grid_collapse, fig
+
+
+def _compute_collapse_rate_city(h5_file: Path, collapse_code: int, i_rup: int) -> np.ndarray:
+    """Calculate collapse rates from a single rupture in city-mode ByRupture results.
+
+    Returns:
+        numpy.ndarray: 1D array of mean collapse probabilities per building, ordered to align with the building indices stored in ``h5_file``. Values fall within ``[0, 1]``; entries remain ``nan`` if the corresponding building has no simulations."""
+
+    if i_rup is None:
+        raise ValueError("i_rup must be provided for city collapse contour plots")
+
+    group_name = f'group_rup_{i_rup}'
+    with h5py.File(h5_file, 'r') as f:
+        if group_name not in f:
+            available = sorted(int(g.split('_')[-1]) for g in f.keys() if g.startswith('group_rup_'))
+            raise KeyError(f"Rupture group {group_name} not found. Available groups: {available}")
+        loss_dataset = f[group_name]['loss_matrix']
+        collapse_counts = np.sum(loss_dataset == collapse_code, axis=1)
+        total_simulations = loss_dataset.shape[1]
+
+    if total_simulations == 0:
+        logger.warning("Selected rupture contains no simulations; returning zeros")
+        return np.zeros(loss_dataset.shape[0], dtype=float)
+
+    return collapse_counts / total_simulations
+
+
+def _mean_collapse_from_matrix(loss_dataset: h5py.Dataset, collapse_code: int) -> np.ndarray:
+    """Return per-building collapse probabilities from a loss_matrix dataset."""
+
+    data = loss_dataset[:]
+    n_buildings, n_sim = data.shape
+
+    if n_sim == 0:
+        logger.warning("Selected event contains no simulations; returning zeros")
+        return np.zeros(n_buildings, dtype=float)
+
+    missing_mask = None
+    if np.issubdtype(data.dtype, np.floating):
+        missing_mask = np.isnan(data)
+    else:
+        fillvalue = loss_dataset.fillvalue
+        if fillvalue is not None:
+            missing_mask = data == fillvalue
+
+    collapse_matrix = data == collapse_code
+
+    if missing_mask is not None:
+        collapse_matrix = collapse_matrix.astype(float)
+        collapse_matrix[missing_mask] = np.nan
+        with np.errstate(invalid='ignore'):
+            collapse_prob = np.nanmean(collapse_matrix, axis=1)
+    else:
+        collapse_prob = collapse_matrix.mean(axis=1, dtype=np.float64)
+
+    return collapse_prob
+
+
+def _compute_collapse_rate_event(h5_file: Path, bld_indices: np.ndarray, collapse_code: int) -> np.ndarray:
+    """Calculate collapse rates from single-event regional results.
+
+    Returns:
+        numpy.ndarray: 1D array of mean collapse probabilities aligned with ``bld_indices``. Values are within ``[0, 1]`` when simulations exist; entries remain ``nan`` if a building has no simulations."""
+
+    logger.info(f"Computing collapse rates from event-mode results: {h5_file}")
+    bld_indices = np.asarray(bld_indices, dtype=np.int64)
+    index_to_pos = {int(idx): pos for pos, idx in enumerate(bld_indices)}
+    collapse_rates = np.full(len(bld_indices), np.nan, dtype=float)
+
+    with h5py.File(h5_file, 'r') as f:
+        if 'loss_matrix' in f and isinstance(f['loss_matrix'], h5py.Dataset):
+            loss_dataset = f['loss_matrix']
+            collapse_prob = _mean_collapse_from_matrix(loss_dataset, collapse_code)
+
+            if 'building_indices' in f:
+                file_indices = np.asarray(f['building_indices'][:], dtype=np.int64)
+            else:
+                file_indices = np.arange(collapse_prob.size, dtype=np.int64)
+
+            for src_pos, idx in enumerate(file_indices):
+                pos = index_to_pos.get(int(idx))
+                if pos is not None:
+                    collapse_rates[pos] = collapse_prob[src_pos]
+            return collapse_rates
+        else:
+            raise KeyError("Expected 'loss_matrix' dataset not found in HDF5 file")
+
+
+def _aggregate_collapse_to_grid(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    collapse: np.ndarray,
+    grid_km: float = 10.0,
+    min_points: int = 1
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Average collapse probabilities within square grids.
+
+    Parameters:
+        lon, lat (np.ndarray): Longitude and latitude arrays of valid building centroids.
+        collapse (np.ndarray): Collapse probabilities aligned with ``lon``/``lat``.
+        grid_km (float): Grid size in kilometres.
+        min_points (int): Minimum number of buildings required for a grid cell to be retained.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray]: Arrays of grid-centroid longitude, latitude, and averaged collapse
+        probability. Empty arrays are returned when no cells satisfy the criteria.
+    """
+
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    collapse = np.asarray(collapse, dtype=float)
+
+    finite_mask = np.isfinite(lon) & np.isfinite(lat) & np.isfinite(collapse)
+    lon = lon[finite_mask]
+    lat = lat[finite_mask]
+    collapse = collapse[finite_mask]
+
+    empty = np.array([], dtype=float)
+
+    if lon.size == 0:
+        return empty, empty, empty
+
+    if grid_km <= 0:
+        raise ValueError("grid_km must be a positive number")
+
+    points_gdf = gpd.GeoDataFrame(
+        {'collapse': collapse},
+        geometry=gpd.points_from_xy(lon, lat),
+        crs='EPSG:4326'
+    )
+
+    try:
+        target_crs = points_gdf.estimate_utm_crs()
+        points_proj = points_gdf.to_crs(target_crs)
+    except Exception:
+        logger.debug("Failed to estimate local UTM CRS, falling back to EPSG:3857 for grid aggregation")
+        points_proj = points_gdf.to_crs(epsg=3857)
+
+    x = points_proj.geometry.x.to_numpy()
+    y = points_proj.geometry.y.to_numpy()
+    collapse_proj = points_proj['collapse'].to_numpy()
+
+    grid_m = grid_km * 1000.0
+    if grid_m <= 0:
+        raise ValueError("Computed grid size must be positive")
+
+    x0 = float(x.min())
+    y0 = float(y.min())
+    ix = np.floor((x - x0) / grid_m).astype(int)
+    iy = np.floor((y - y0) / grid_m).astype(int)
+
+    grid_df = pd.DataFrame({
+        'ix': ix,
+        'iy': iy,
+        'x': x,
+        'y': y,
+        'collapse': collapse_proj
+    })
+
+    agg = grid_df.groupby(['ix', 'iy']).agg(
+        x=('x', 'mean'),
+        y=('y', 'mean'),
+        collapse=('collapse', 'mean'),
+        count=('collapse', 'size')
+    ).reset_index()
+
+    agg = agg[agg['count'] >= max(int(min_points), 1)]
+    if agg.empty:
+        return empty, empty, empty
+
+    agg_gdf = gpd.GeoDataFrame(
+        agg,
+        geometry=gpd.points_from_xy(agg['x'], agg['y']),
+        crs=points_proj.crs
+    ).to_crs(epsg=4326)
+
+    lon_grid = agg_gdf.geometry.x.to_numpy()
+    lat_grid = agg_gdf.geometry.y.to_numpy()
+    collapse_grid = agg_gdf['collapse'].to_numpy(dtype=float)
+
+    return lon_grid, lat_grid, collapse_grid
+
+
+def _draw_county_boundaries(ax: plt.Axes, lon: np.ndarray, lat: np.ndarray):
+    """Overlay county-level boundaries using internal region polygons.
+
+    Returns:
+        tuple | None: Axis limits (lon_min, lon_max, lat_min, lat_max) including buffers if inputs are valid; ``None`` when insufficient data.
+    """
+
+    if lon.size == 0 or lat.size == 0:
+        return None
+
+    lon_min = float(np.min(lon))
+    lon_max = float(np.max(lon))
+    lat_min = float(np.min(lat))
+    lat_max = float(np.max(lat))
+
+    lon_buffer = max((lon_max - lon_min) * 0.05, 0.01)
+    lat_buffer = max((lat_max - lat_min) * 0.05, 0.01)
+
+    lims = (lon_min - lon_buffer, lon_max + lon_buffer, lat_min - lat_buffer, lat_max + lat_buffer)
+    ax.set_xlim(lims[0], lims[1])
+    ax.set_ylim(lims[2], lims[3])
+
+    try:
+        region_polygon = Utilities.get_region_polygon(lat_min, lat_max, lon_min, lon_max)
+        if region_polygon is not None:
+            gpd.GeoSeries([region_polygon]).plot(
+                ax=ax,
+                facecolor='none',
+                edgecolor='black',
+                linewidth=0.8,
+                zorder=5
+            )
+    except Exception as exc:
+        logger.debug(f"Failed to draw region boundaries': {exc}")
+
+    return lims
+
 
 def create_maps_median_IM(CityName: str, BaseMap: str = 'Cartodb Positron', savedir = RESULTDIR):
     """
@@ -865,7 +1223,8 @@ def create_mbtiles_city_regional_losses(CityName: str, ResultsDir = RegionalLoss
             '-dsco', 'TYPE=overlay',
             '-dsco', f'NAME=Regional Loss {CityName}',
             '-dsco', f'DESCRIPTION=Regional seismic losses for {CityName}, {LossType}',
-            '-dsco', 'COMPRESS=YES',  # 移到dsco            
+            '-dsco', 'COMPRESS=YES',
+            '-dsco', 'MAX_FEATURES=2000',    
             '-lco', f'NAME=temp_{CityName}_{LossType}_{iSim}',  # 明确指定层名称
             '-nln', f'temp_{CityName}_{LossType}_{iSim}'  # 新图层名称
         ]

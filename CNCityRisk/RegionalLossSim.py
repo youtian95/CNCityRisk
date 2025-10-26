@@ -57,7 +57,7 @@ import pandas as pd
 import h5py
 import geopandas as gpd
 import dask.array as da
-from typing import Union
+from typing import Optional, Union
 import matplotlib.pyplot as plt
 import py7zr
 import json
@@ -65,6 +65,7 @@ import multiprocessing as mp
 import hashlib
 import pickle
 import time
+import os
 
 
 RESULTDIR = Path(__file__).resolve().parent / 'results/RegionalLossSim/'
@@ -74,36 +75,358 @@ MAP_ZIP = RESULTDIR / 'maps.7z'
 logger = Logger.get_logger('RegionalLossSim')
 
 
-def simulate_regional_losses(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
+def simulate_regional_losses(CityNameorRegionName: str, Bld_gdf: gpd.GeoDataFrame, Event: dict = None, losstype: str = 'DS_Struct', OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
     '''
     使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
 
     Parameters:
-        CityName (str): 城市名称，用于获取IM模拟数据和确定HDF5文件路径
+        CityName (str): 城市名称，用于获取IM模拟数据和确定HDF5文件路径.
         Bld_gdf (gpd.GeoDataFrame): 包含建筑数据的GeoDataFrame
+        Event (dict): 如果为None，则在城市模式下运行；否则在区域模式下运行
         losstype (str): 要模拟的损失类型。选项包括 'DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen', 'RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime'
         OutputDir (Path): 保存输出文件的目录。默认为 'results/RegionalLossSim/'
         ChunkSize (int): 每个chunk中要处理的建筑数量。默认为10000
         n_processes (int): 使用的进程数。如果为None，则使用4个
     
     Results:
-        BldLoss_{losstype}_ByRupture.hdf5: 包含按震源分组的模拟区域损失的HDF5文件
-            group_rup_{i}: 震源i的数据组
-                loss_matrix: (N_bld x N_sim) 损失矩阵，行为建筑，列为该震源的模拟
-                rupid: 震源ID字符串
-                iSim_indices: 该震源在全局模拟中的索引列表
-                rup_info: 震源的详细信息（震级、位置等）
+        城市模式 (City mode):
+            results/RegionalLossSim/<CityName>/BldLoss_{losstype}_ByRupture.hdf5
+                group_rup_{i}: 震源 i 的数据组
+                    loss_matrix: (N_bld x N_sim) 损失矩阵，行为建筑，列为该震源的模拟
+                    rupid: 震源 ID 字符串
+                    iSim_indices: 该震源在全局模拟中的索引列表
+                    rup_info: 震源的详细信息（震级、位置等）
+        区域模式 (Region mode):
+            results/RegionalLossSim/<RegionName>/<event_name>/BldLoss_{losstype}_ByRupture.hdf5
+                - ``loss_matrix``: 单事件的损失矩阵 (N_bld × N_sim)
+                - ``building_indices``、``simulation_indices``: 行列索引映射
+                - ``event_info``: 事件名称与参数元数据
     '''
     
-    simulate_regional_losses_multiprocess(CityName, Bld_gdf, losstype, OutputDir, ChunkSize, n_processes)
+    if Event is None:
+        # city mode
+        _simulate_regional_losses_multiprocess(CityNameorRegionName, Bld_gdf, losstype, OutputDir, ChunkSize, n_processes)
+        reorganize_BldLoss_by_rupture(CityNameorRegionName, losstype, OutputDir, OutputDir, chunk_size=ChunkSize)
 
-    reorganize_BldLoss_by_rupture(CityName, losstype, OutputDir, OutputDir, chunk_size=ChunkSize)
+        # clean up the intermediate file
+        interm_file = OutputDir / CityNameorRegionName / f'BldLoss_{losstype}.hdf5'
+        if interm_file.exists():
+            interm_file.unlink()
+            logger.info(f"Deleted intermediate file: {interm_file}")
+    else:
+        # region mode
+        _simulate_regional_losses_event(
+            region_name=CityNameorRegionName,
+            Bld_gdf=Bld_gdf,
+            event=Event,
+            losstype=losstype,
+            output_dir=OutputDir,
+            chunk_size=ChunkSize
+        )
+        reorganized_file = _reorganize_RegionBldLoss_by_rupture(
+            region_name=CityNameorRegionName,
+            event=Event,
+            losstype=losstype,
+            output_dir=OutputDir,
+            Bld_gdf=Bld_gdf
+        )
+        logger.info(f"Reorganized regional loss matrix saved to: {reorganized_file}")
 
-    # clean up the intermediate file
-    interm_file = OutputDir / CityName / f'BldLoss_{losstype}.hdf5'
-    if interm_file.exists():
-        interm_file.unlink()
-        logger.info(f"Deleted intermediate file: {interm_file}")
+        # clean up the intermediate file
+        event_name = IMSim.get_event_name(Event)
+        interm_file = OutputDir / CityNameorRegionName / event_name / f'BldLoss_{losstype}.hdf5'
+        if interm_file.exists():
+            interm_file.unlink()
+            logger.info(f"Deleted intermediate file: {interm_file}")
+
+
+def _simulate_regional_losses_event(region_name: str, Bld_gdf: gpd.GeoDataFrame, event: dict, losstype: str, output_dir: Path, chunk_size: int) -> None:
+    """
+    Simulate losses for a single-event regional run using precomputed IM fields.
+
+    Results:
+        results/RegionalLossSim/<RegionName>/<event_name>/BldLoss_{losstype}.hdf5
+        文件属性: RegionName, event_name, losstype, total_buildings, total_simulations, event_parameters
+        数据集 BldID_{idx}: 针对每栋建筑的模拟结果，维度为 (N_sim,)
+            - 对离散损伤类型，存储为整型编码（映射至 BldPSPA_ReprBld.DS_types）
+            - 对连续损失指标，存储为 float32 数组
+    """
+
+    if losstype not in BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2:
+        error_msg = f"losstype must be one of {BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2}."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    event_name = IMSim.get_event_name(event)
+    logger.info(
+        f"Starting regional loss simulation for event '{event_name}' with {len(Bld_gdf)} buildings and loss type: {losstype}"
+    )
+
+    event_dir = IMSim.IM_SIM_DIR / region_name / event_name
+    im_file = event_dir / 'IM_mat_Bld.txt'
+    if not im_file.exists():
+        error_msg = f"IM results file not found for event '{event_name}': {im_file}"
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    try:
+        IM_sim_df = pd.read_csv(im_file, sep=r'\s+', header=None, dtype=np.float32)
+        IM_sim = IM_sim_df.values
+    except Exception as exc:
+        logger.error(f"Failed to read IM_mat_Bld.txt for event '{event_name}': {exc}")
+        raise
+
+    if IM_sim.ndim == 1:
+        try:
+            IM_sim = IM_sim.reshape(len(Bld_gdf), -1)
+        except ValueError as exc:
+            error_msg = (
+                "Unable to reshape IM simulation data for single-column event results. "
+                "Ensure the IM_mat_Bld.txt layout matches the building count."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg) from exc
+
+    if IM_sim.shape[0] != len(Bld_gdf):
+        error_msg = (
+            f"IM simulation row count ({IM_sim.shape[0]}) does not match building count ({len(Bld_gdf)})."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    output_dir = Path(output_dir).resolve() / region_name / event_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f'BldLoss_{losstype}.hdf5'
+
+    logger.info(f"Writing regional loss results to: {output_file}")
+
+    with tqdm(total=len(Bld_gdf), desc=f"Simulating losses for {event_name}", unit="building") as pbar:
+        with h5py.File(output_file, 'w') as f:
+            f.attrs['RegionName'] = region_name
+            f.attrs['event_name'] = event_name
+            f.attrs['losstype'] = losstype
+            f.attrs['created'] = pd.Timestamp.now().isoformat()
+            f.attrs['total_buildings'] = len(Bld_gdf)
+            f.attrs['total_simulations'] = int(IM_sim.shape[1])
+            try:
+                f.attrs['event_parameters'] = json.dumps(event)
+            except TypeError:
+                f.attrs['event_parameters'] = str(event)
+
+            for chunk_start in range(0, len(Bld_gdf), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(Bld_gdf))
+                T_chunk = Bld_gdf.iloc[chunk_start:chunk_end]
+                IM_chunk = IM_sim[chunk_start:chunk_end, :]
+
+                unique_reprs = T_chunk['ReprBldID_PSPA'].unique()
+                for repr_id in unique_reprs:
+                    mask = T_chunk['ReprBldID_PSPA'] == repr_id
+                    idx = T_chunk.index[mask]
+                    local_positions = np.flatnonzero(mask.to_numpy())
+                    if not len(idx):
+                        continue
+
+                    N_sim_per_bld = IM_chunk.shape[1]
+                    IMlist = IM_chunk[local_positions, :].reshape(-1).tolist()
+
+                    sim_loss = BldPSPA_ReprBld.SimLossRandomly(
+                        ReprPSPAID=repr_id,
+                        IM=IMlist,
+                        losstype=losstype,
+                        Nsim=[1] * len(IMlist)
+                    )
+
+                    sim_loss = np.asarray(sim_loss).flatten()
+                    if sim_loss.size != len(idx) * N_sim_per_bld:
+                        error_msg = (
+                            f"Unexpected loss array size for representative building {repr_id}: "
+                            f"expected {len(idx) * N_sim_per_bld}, got {sim_loss.size}."
+                        )
+                        logger.error(error_msg)
+                        raise ValueError(error_msg)
+
+                    sim_loss = sim_loss.reshape(len(idx), N_sim_per_bld)
+
+                    for i, idx_i in enumerate(idx):
+                        dataset_name = f'BldID_{idx_i}'
+                        if losstype in BldPSPA_ReprBld.LossTypes1:
+                            sim_loss_cat = pd.Categorical(
+                                np.array(sim_loss[i]),
+                                categories=BldPSPA_ReprBld.DS_types
+                            )
+                            data = sim_loss_cat.codes.astype('int8')
+                            f.create_dataset(
+                                dataset_name,
+                                data=data,
+                                dtype='int8',
+                                compression='gzip',
+                                compression_opts=9,
+                                shuffle=True
+                            )
+                        else:
+                            data = np.array(sim_loss[i], dtype='float32')
+                            f.create_dataset(
+                                dataset_name,
+                                data=data,
+                                dtype='float32',
+                                compression='gzip',
+                                compression_opts=9,
+                                shuffle=True
+                            )
+                        pbar.update(1)
+
+    logger.info(
+        f"Regional loss simulation for event '{event_name}' completed. Results saved to: {output_file}"
+    )
+
+
+def _reorganize_RegionBldLoss_by_rupture(
+    region_name: str,
+    event: Union[dict, str],
+    losstype: str,
+    output_dir: Path = RESULTDIR,
+    chunk_size: int = 10000,
+    Bld_gdf: Optional[gpd.GeoDataFrame] = None
+) -> Path:
+    """Reorganize single-event regional losses into a loss_matrix dataset.
+
+    Parameters:
+        region_name (str): 区域名称，对应结果输出目录。
+        event (dict | str): 事件字典或事件名称。
+        losstype (str): 损失类型，必须与模拟步骤保持一致。
+        output_dir (Path): 区域结果根目录。
+        chunk_size (int): 每次批量写入的建筑数量，避免一次性占用过多内存。
+        Bld_gdf (GeoDataFrame | None): 建筑数据，用于建立建筑索引顺序。
+
+    Returns:
+        Path: 所生成的 ``BldLoss_{losstype}_ByRupture.hdf5`` 文件路径。
+    """
+
+    if losstype not in BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2:
+        error_msg = f"losstype must be one of {BldPSPA_ReprBld.LossTypes1 + BldPSPA_ReprBld.LossTypes2}."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    event_name = IMSim.get_event_name(event) if isinstance(event, dict) else str(event)
+    if not event_name:
+        raise ValueError("Event name cannot be empty when reorganizing regional losses")
+
+    base_dir = Path(output_dir).resolve() / region_name / event_name
+    input_file = base_dir / f'BldLoss_{losstype}.hdf5'
+    output_file = base_dir / f'BldLoss_{losstype}_ByRupture.hdf5'
+
+    if not input_file.exists():
+        error_msg = f"Input file not found for event '{event_name}': {input_file}"
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
+
+    logger.info(f"Reorganizing regional loss file into matrix form: {input_file}")
+
+    building_indices: Optional[np.ndarray] = None
+    if Bld_gdf is not None and not Bld_gdf.empty:
+        try:
+            building_indices = Bld_gdf.index.to_numpy(dtype=np.int64, copy=True)
+        except Exception:
+            logger.debug("Failed to convert building GeoDataFrame indices directly; falling back to file datasets")
+            building_indices = None
+
+    with h5py.File(input_file, 'r') as f_in:
+        dataset_names = [name for name in f_in.keys() if name.startswith('BldID_')]
+        if not dataset_names:
+            raise ValueError(f"No building datasets found in {input_file}")
+
+        dataset_map = {int(name.split('_', 1)[1]): name for name in dataset_names}
+
+        if building_indices is None or building_indices.size == 0:
+            building_indices = np.array(sorted(dataset_map.keys()), dtype=np.int64)
+        else:
+            indices_list = np.array(building_indices, dtype=np.int64)
+            dataset_ids = np.array(sorted(dataset_map.keys()), dtype=np.int64)
+            if indices_list.size != dataset_ids.size or set(indices_list.tolist()) != set(dataset_ids.tolist()):
+                raise ValueError(
+                    "Building indices from geometry data do not match the loss file datasets"
+                )
+            building_indices = indices_list
+
+        if building_indices.size == 0:
+            raise ValueError("No building indices available to reorganize event losses")
+
+        # Determine simulation count and data type using the first available dataset
+        sample_dataset = f_in[dataset_map[int(building_indices[0])]]
+        sample_data = sample_dataset[:]
+        if sample_data.size == 0:
+            raise ValueError("Sample dataset contains no simulations; cannot determine matrix dimensions")
+        n_sim = sample_data.size
+        dtype = 'int8' if losstype in BldPSPA_ReprBld.LossTypes1 else 'float32'
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    with h5py.File(input_file, 'r') as f_in, h5py.File(output_file, 'w') as f_out:
+        # copy high-level metadata
+        for key, value in f_in.attrs.items():
+            f_out.attrs[key] = value
+        f_out.attrs['RegionName'] = region_name
+        f_out.attrs['event_name'] = event_name
+        f_out.attrs['losstype'] = losstype
+        f_out.attrs['created'] = pd.Timestamp.now().isoformat()
+        f_out.attrs['total_buildings'] = int(building_indices.size)
+        f_out.attrs['total_simulations'] = int(n_sim)
+        f_out.attrs['original_file'] = str(input_file)
+        f_out.attrs['organized_mode'] = 'event'
+
+        fill_value = -1 if dtype == 'int8' else np.nan
+        loss_ds = f_out.create_dataset(
+            'loss_matrix',
+            shape=(building_indices.size, n_sim),
+            dtype=dtype,
+            compression='gzip',
+            compression_opts=9,
+            shuffle=True,
+            chunks=True,
+            fillvalue=fill_value
+        )
+
+        f_out.create_dataset('building_indices', data=building_indices, compression='gzip')
+        f_out.create_dataset('simulation_indices', data=np.arange(n_sim, dtype=np.int32), compression='gzip')
+
+        event_info_group = f_out.create_group('event_info')
+        event_info_group.attrs['event_name'] = event_name
+        if 'event_parameters' in f_in.attrs:
+            event_info_group.attrs['event_parameters'] = f_in.attrs['event_parameters']
+
+        logger.info(f"Writing loss matrix with shape ({building_indices.size}, {n_sim})")
+
+        safe_chunk = max(int(chunk_size), 1)
+        total_buildings = building_indices.size
+
+        with tqdm(total=total_buildings, desc="Reorganizing region event", unit="building") as pbar:
+            for start in range(0, total_buildings, safe_chunk):
+                end = min(start + safe_chunk, total_buildings)
+                chunk_indices = building_indices[start:end]
+                chunk_rows = end - start
+                chunk_buffer = np.empty((chunk_rows, n_sim), dtype=dtype)
+
+                for row_offset, bld_idx in enumerate(chunk_indices):
+                    dataset_name = dataset_map.get(int(bld_idx))
+                    if dataset_name is None:
+                        raise KeyError(f"Building ID {bld_idx} missing from loss datasets")
+
+                    data = f_in[dataset_name][:]
+
+                    if data.size == 0:
+                        chunk_buffer[row_offset, :] = fill_value
+                    elif data.size != n_sim:
+                        raise ValueError(
+                            f"Unexpected simulation count for building {bld_idx}: expected {n_sim}, got {data.size}"
+                        )
+                    else:
+                        chunk_buffer[row_offset, :] = data.astype(dtype, copy=False)
+
+                loss_ds[start:end, :] = chunk_buffer
+                pbar.update(chunk_rows)
+
+    logger.info(f"Reorganized event loss matrix saved to: {output_file}")
+    return output_file
+
 
 def _simulate_regional_losses(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 5000, n_processes: int = None) -> None:
     '''
@@ -402,7 +725,7 @@ def _process_BldLoss_chunk_worker_by_rupture(args):
     return len(bld_chunk)
 
 
-def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize = 10000) -> None:
+def _simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize = 10000) -> None:
     '''
     单进程版本：基于概率性地震性能评估(PSPA)结果模拟区域地震损失。
 
@@ -493,7 +816,7 @@ def simulate_regional_losses_single_process(CityName: str, Bld_gdf: gpd.GeoDataF
     logger.info(f"Single-process regional loss simulation completed. Results saved to: {output_file}")
 
 
-def simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 10000, n_processes: int = None) -> None:
+def _simulate_regional_losses_multiprocess(CityName: str, Bld_gdf: gpd.GeoDataFrame, losstype: str, OutputDir: Path = RESULTDIR, ChunkSize: int = 10000, n_processes: int = None) -> None:
     '''
     使用多进程模拟区域地震损失，基于概率性地震性能评估(PSPA)结果。
     每个进程内部从dask数组读取所需的数据片段，避免大数组的完整复制。

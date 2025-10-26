@@ -31,7 +31,13 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
         max_lat (float, optional): Maximum latitude of the region. Required for coordinate mode.
         MinBldArea (float, optional): Minimum area of buildings to be considered. Unit: square meter.
     Returns:
-        None. A folder containing csv files. Each csv file contains the building data of the city. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
+        dict: A dictionary with processing results containing:
+            - 'total_districts': Total number of districts processed
+            - 'successful_districts': Number of districts with buildings found and processed
+            - 'empty_districts': List of district names where no buildings were found
+
+    Resulting Data:
+        A folder containing csv files. Each csv file contains the building data of the city. Columns include: longitude, latitude, story, area, structure, occupancy, designlevel.
     '''
     # Determine which mode to use
     if CityName is not None:
@@ -63,13 +69,7 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
         
     elif all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
         # Coordinate mode - round to 0.01 precision
-        min_lon = round(min_lon, 2)
-        max_lon = round(max_lon, 2)
-        min_lat = round(min_lat, 2)
-        max_lat = round(max_lat, 2)
-        
-        # Generate region name from coordinates
-        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+        region_name, (min_lon, max_lon, min_lat, max_lat) = generate_region_name(min_lon, max_lon, min_lat, max_lat)
         
         logger.info(f'Starting to prepare building data for coordinate region {region_name} (lon: {min_lon}-{max_lon}, lat: {min_lat}-{max_lat})...')
         start_time = time.time()
@@ -88,6 +88,11 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
         
     else:
         raise ValueError("Invalid parameters. Either provide 'CityName' for city mode, or provide 'min_lon', 'max_lon', 'min_lat', 'max_lat' for coordinate mode.")
+
+    # Initialize statistics tracking
+    total_districts = len(districts_gdf)
+    successful_districts = 0
+    empty_districts = []
 
     # Process each district
     for i in range(len(districts_gdf)):
@@ -148,6 +153,12 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
             district_polygon = district_row.geometry
             district_gdf = gpd.read_file(current_prof_file, mask=district_polygon)
             district_gdf.columns = district_gdf.columns.str.lower()
+
+            # Check if any buildings are found
+            if len(district_gdf) == 0:
+                logger.warning(f'No buildings found in district {districtname} from province building footprint. Skipping')
+                empty_districts.append(districtname)
+                continue
             
             # 处理建筑数据
             logger.debug('Converting building height to stories')
@@ -177,6 +188,12 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
                 old_count = len(district_gdf)
                 district_gdf = district_gdf[district_gdf['area'].astype(float) >= MinBldArea]
                 logger.debug(f'Filtered buildings count: {len(district_gdf)}/{old_count}')
+                
+                # Check if any buildings remain after filtering
+                if len(district_gdf) == 0:
+                    logger.warning(f'No buildings remain in district {districtname} after area filtering (min area: {MinBldArea} m²). Skipping')
+                    empty_districts.append(districtname)
+                    continue
         else:
             logger.info(f'District {districtname} data already exists')
             if MinBldArea is not None:
@@ -184,6 +201,13 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
                 old_count = len(district_gdf)
                 district_gdf = district_gdf[district_gdf['area'].astype(float) >= MinBldArea]
                 logger.debug(f'Filtered buildings count: {len(district_gdf)}/{old_count}')
+                
+                # Check if any buildings remain after filtering
+                if len(district_gdf) == 0:
+                    logger.warning(f'No buildings remain in district {districtname} after area filtering (min area: {MinBldArea} m²). Skipping')
+                    empty_districts.append(districtname)
+                    continue
+                    
                 if is_coordinate_mode:
                     SaveDistrictBldGDF(region_name, file_identifier, district_gdf)
                 else:
@@ -232,12 +256,29 @@ def prepare_building_data(CityName=None, min_lon=None, max_lon=None, min_lat=Non
             
         district_end_time = time.time()
         logger.info(f'District {districtname} processing completed, time: {district_end_time-district_start_time:.2f} seconds')
+        successful_districts += 1
 
     end_time = time.time()
+    
+    # Prepare result statistics
+    result = {
+        'total_districts': total_districts,
+        'successful_districts': successful_districts,
+        'empty_districts': empty_districts
+    }
+    
     if is_coordinate_mode:
         logger.info(f'Building data preparation for coordinate region {region_name} completed, total time: {end_time-start_time:.2f} seconds')
+        logger.info(f'Processing summary: {successful_districts}/{total_districts} districts processed successfully')
+        if empty_districts:
+            logger.warning(f'Districts with no buildings: {", ".join(empty_districts)}')
     else:
         logger.info(f'Building data preparation for city {CityName} completed, total time: {end_time-start_time:.2f} seconds')
+        logger.info(f'Processing summary: {successful_districts}/{total_districts} districts processed successfully')
+        if empty_districts:
+            logger.warning(f'Districts with no buildings: {", ".join(empty_districts)}')
+    
+    return result
 
 def GetDesignLevelAndEQGroupbyLoc(CityName: str, DistrictName: str):
     '''
@@ -410,13 +451,7 @@ def EstimateSeismicDesignLevel(CityName=None, min_lon=None, max_lon=None, min_la
         
     elif all(param is not None for param in [min_lon, max_lon, min_lat, max_lat]):
         # Coordinate mode - round to 0.01 precision
-        min_lon = round(min_lon, 2)
-        max_lon = round(max_lon, 2)
-        min_lat = round(min_lat, 2)
-        max_lat = round(max_lat, 2)
-        
-        # Generate region name from coordinates
-        region_name = f"Region_{min_lon}_{max_lon}_{min_lat}_{max_lat}"
+        region_name, (min_lon, max_lon, min_lat, max_lat) = generate_region_name(min_lon, max_lon, min_lat, max_lat)
         
         logger.info(f'Starting to estimate seismic design level, earthquake group and site class for coordinate region {region_name}...')
         start_time = time.time()
