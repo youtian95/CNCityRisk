@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "CNCityRisk"
-version = "0.3.2"
+version = "0.3.4"
 description = "Regional seismic risk assessment of buildings of major cities in China"
 authors = [
     { name="Tian You", email="youtian@njtech.edu.cn" }
@@ -43,10 +43,10 @@ Homepage = "https://github.com/youtian95/CNCityRisk"
 
 [tool.hatch.build.targets.wheel]
 artifacts = [
-  "CNCityRisk/Data/BldData/",
+  "CNCityRisk/results/BldData/",
 ]
 
 [tool.hatch.build.targets.sdist]
 artifacts = [
-  "CNCityRisk/Data/BldData/",
+  "CNCityRisk/results/BldData/",
 ]

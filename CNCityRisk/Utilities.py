@@ -2,6 +2,7 @@ from pathlib import Path
 import math
 import geopandas as gpd
 from shapely.geometry import box, Polygon, Point, MultiPolygon
+from shapely import wkt
 import addressparser
 from pypinyin import lazy_pinyin
 from joblib import load
@@ -12,6 +13,7 @@ import requests
 import configparser
 import rasterio
 import h5py
+import json
 import sys
 import BldStructPred
 import numpy as np
@@ -19,6 +21,7 @@ from packaging import version
 import re
 from typing import Optional, Tuple, List, Dict, Any
 import warnings
+import ast
 
 
 # API key
@@ -35,7 +38,7 @@ except Exception:
 CHINA_ADMINDIVISON_SHP = (Path(__file__).parent / './Data/ChinaAdminDivisonSHP-24.02.06').resolve()
 BLD_FOOTPRINT_PATH = (Path(__file__).parent / './Data/CNBldFootprintHeight_Che2024').resolve()
 POI_AMAP_PATH = (Path(__file__).parent / './Data/POI_AMAP_2020').resolve()
-BLD_DATA_PATH = (Path(__file__).parent / './Data/BldData').resolve()
+BLD_DATA_PATH = (Path(__file__).parent / './results/BldData').resolve()
 np_version_obj = version.parse(np.__version__)
 if np_version_obj < version.parse('1.27.0'):
     TRAINED_RF_BLDSTRUCT = Path(BldStructPred.__file__).parent / 'data/TrainedRF_numpy_v_1_26.joblib'
@@ -48,6 +51,21 @@ MAP_POI_OCCUPANCY_PATH = (Path(__file__).parent / './Data/高德POI分类与Hazu
 GB50011_A_FILE = (Path(__file__).parent / './Data/GB50011-2010(2016)-Appendix-A.csv').resolve()
 VS30FILE = (Path(__file__).parent / './Data/China_Mainland_SCK_Vs30.xlsx').resolve()   
 
+# 建筑数据列的特殊指定类型
+BLD_GDF_COLUMN_TYPES: Dict[str, Any] = {
+    'height': float,
+    'longitude': float,
+    'latitude': float,
+    'area': float,
+    'story': int,
+    'ReprBldID': int,
+    'ReprBldID_PSPA': int,
+    'SeismicDesignLevel': str,
+    'designlevel': str,
+    'EQGroup': str,
+    'SiteClass': str,
+}
+POI_COLUMNS = ['POI', 'POI_Nearest']
 
 # Colors for the plots
 # green blue yellow red
@@ -659,7 +677,7 @@ def Get_rows_DistrictBldGDF(CityName: str, DistrictName: str) -> int:
     row_count = sum(1 for _ in pd.read_csv(DistrictFile, chunksize=10000))
     return row_count
 
-def ReadDistrictBldGDF(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
+def ReadDistrictBldGDF_CSV(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
     '''
     Read the building data of a district from a csv file in the BLD_DATA_PATH.
     Parameters:
@@ -697,10 +715,87 @@ def ReadDistrictBldGDF(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
     except:
         return None
 
-def SaveDistrictBldGDF(CityName: str, DistrictName: str, Bld_gdf: gpd.GeoDataFrame):
+def SaveDistrictBldGDF_CSV(CityName: str, DistrictName: str, Bld_gdf: gpd.GeoDataFrame):
     CityDir = BLD_DATA_PATH / CityName
     # save to csv
     Bld_gdf.to_csv(CityDir / f'{DistrictName}.csv', index=False, encoding='utf-8-sig')
+
+
+def _cast_BldGDF_column_types(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """根据预定义的列类型映射，转换GeoDataFrame中的列类型。"""
+    for column, dtype in BLD_GDF_COLUMN_TYPES.items():
+        if column in gdf.columns:
+            try:
+                gdf[column] = gdf[column].astype(dtype)
+            except Exception as e:
+                warnings.warn(f"Could not convert column {column} to type {dtype}: {e}", UserWarning)
+    return gdf
+
+
+def ReadDistrictBldGDF(LocationName: str = None, DistrictName: str = None, FilePath = None) -> Optional[gpd.GeoDataFrame]:
+    """读取区级建筑数据，优先使用Parquet"""
+
+    def _parse_poi_value(value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                try:
+                    return ast.literal_eval(stripped)
+                except (ValueError, SyntaxError):
+                    return stripped
+        return value
+    
+    if FilePath is not None:
+        parquet_path = Path(FilePath)
+    else:
+        parquet_path = BLD_DATA_PATH / LocationName / f'{DistrictName}.parquet'
+    if parquet_path.exists():
+        gdf = gpd.read_parquet(parquet_path)
+        for column in POI_COLUMNS:
+            if column in gdf.columns:
+                gdf[column] = gdf[column].apply(_parse_poi_value)
+        gdf = _cast_BldGDF_column_types(gdf)
+        
+        if DistrictName is not None and 'DistrictName' not in gdf.columns:
+            gdf['DistrictName'] = DistrictName
+
+        return gdf
+    else:
+        return None
+
+def SaveDistrictBldGDF(LocationName: str = None, DistrictName: str = None, Bld_gdf: gpd.GeoDataFrame = None, FilePath: str = None):
+    """将区级建筑数据保存为Parquet，并按列类型定制化处理。"""
+
+    def _poi_to_json(value: Any) -> Optional[str]:
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except TypeError:
+            return json.dumps(str(value), ensure_ascii=False)
+        
+    if FilePath is not None:
+        file_path = Path(FilePath)
+    else:
+        location_dir = BLD_DATA_PATH / LocationName
+        location_dir.mkdir(parents=True, exist_ok=True)
+        file_path = location_dir / f'{DistrictName}.parquet'
+
+    gdf = gpd.GeoDataFrame(Bld_gdf)
+
+    if DistrictName is not None and 'DistrictName' not in gdf.columns:
+        gdf['DistrictName'] = DistrictName
+
+    # Convert POI columns to JSON strings
+    for column in POI_COLUMNS:
+        if column in gdf.columns:
+            gdf[column] = gdf[column].apply(_poi_to_json)
+    # Cast columns to predefined types
+    gdf = _cast_BldGDF_column_types(gdf)
+
+    gdf.to_parquet(file_path, compression='snappy', index=True)
 
         
 class SearchVs30:

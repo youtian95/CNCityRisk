@@ -78,7 +78,7 @@ def reproduce_wenchuan2008_event():
         region_name, _ = Utilities.generate_region_name(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
         RegionalLossSim.simulate_regional_losses(CityName=region_name, Bld_gdf=Bld_gdf, Event=event, losstype='DS_Struct')
 
-    # collapse rate contour plot
+    # results\Maps\CollapseRateContours: collapse rate contour plot
     if 1:
         region_name, _ = Utilities.generate_region_name(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
         CreateRegionalMaps.plot_collapse_rate_contour(CityNameorRegionName=region_name, event=event)
@@ -106,7 +106,7 @@ def analyze_1_city(CityName):
 
     # IDA analysis for individual representative buildings
     if 0:
-        IDA_ReprBld.IDA_analysis(NumPool=4)
+        IDA_ReprBld.IDA_analysis(NumPool=6)
 
     # Figures: plot IDA results for one buiding
     if 0:
@@ -116,7 +116,7 @@ def analyze_1_city(CityName):
 
     # Seismic loss simulation for individual representative buildings
     if 0:
-        BldPSPA_ReprBld.LossAssess()
+        BldPSPA_ReprBld.LossAssess(StartOver=True)
 
     # Earthquake events generation
     if 0:
@@ -133,23 +133,24 @@ def analyze_1_city(CityName):
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
-    if 1:
+    if 0:
         Bld_gdf = Utilities.get_CityBldData(CityName)
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct')
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total')
         RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime')
 
-    # Risk: annualized loss calculation
-    if 1:
+    # results\AnnualizedRisk: annualized loss calculation
+    if 0:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
-    # Create maps for displaying building losses
+    # results\Maps\IMmap: Create maps for displaying IM fields
     if 0:
         CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
-    if 1:
+    # results\Maps\mbtiles: Create maps for displaying building losses
+    if 0:
         CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
 
-    # Create statistics for regional losses
+    # results\Maps\RegionalLossStatistics: Create statistics for each event
     if 0:
         RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
     if 0:
@@ -159,7 +160,8 @@ def analyze_1_city(CityName):
 
 if __name__ == '__main__':    
 
-    # analyze_1_city('合肥')
     # analyze_1_city('武汉')
+    # analyze_1_city('合肥')
+    analyze_1_city('重庆')
 
-    reproduce_wenchuan2008_event()
+    # reproduce_wenchuan2008_event()

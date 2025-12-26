@@ -103,12 +103,12 @@ def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Pat
                         # calculate probability of each damage state
                         DS_prob = BldLoss_IM.value_counts(normalize=True)
                         for DS, prob in DS_prob.items():
-                            grp_im_loss.create_dataset(DS, data=prob)
+                            grp_im_loss.create_dataset(DS, data=prob, dtype=np.float32, compression="gzip", compression_opts=6)
                     else:
                         # save CDF of the loss
                         quantiles = np.linspace(0, 1, 101)
                         ecdf_values = np.quantile(BldLoss_IM, quantiles)
-                        grp_im_loss.create_dataset('quantiles', data=ecdf_values)
+                        grp_im_loss.create_dataset('quantiles', data=ecdf_values, dtype=np.float32, compression="gzip", compression_opts=6)
         logger.debug(f"Results saved to HDF5 for building {ID_repr_PSPA}")
     except Exception as e:
         logger.error(f"Error saving results to HDF5 for building {ID_repr_PSPA}: {str(e)}")
@@ -344,6 +344,63 @@ def GetCDFLoss(ReprPSPAID: int, IM: list[float], losstype: str, loss: list[float
             prob_loss.append(prob_loss_interp)
 
     return prob_loss
+
+def get_reconstruction_cost_and_time(ReprPSPAID: int | list[int] | None = None) -> dict[int, tuple[float, float]]:
+    '''
+    Get the reconstruction cost and time of a representative building for PSPA
+
+    Parameters:
+        ReprPSPAID (int or list or None). ID of the representative building for PSPA. If None, return for all buildings.
+    Returns:
+        results (dict). Dictionary with ReprPSPAID as key and (reconstruction_cost, reconstruction_time) as value.
+    '''
+    
+    results = {}
+    
+    with h5py.File(hdf5File, 'r') as f:
+        if ReprPSPAID is None:
+            target_ids = []
+            for key in f.keys():
+                if key.startswith('ReprBldID_'):
+                    try:
+                        pid = int(key.split('_')[-1])
+                        target_ids.append(pid)
+                    except ValueError:
+                        continue
+        elif isinstance(ReprPSPAID, list):
+            target_ids = ReprPSPAID
+        else:
+            target_ids = [ReprPSPAID]
+
+        for pid in target_ids:
+            cost = 0.0
+            time = 0.0
+            bld_key = f'ReprBldID_{pid}'
+            if bld_key in f:
+                grp_bld = f[bld_key]
+                # Iterate over all IMs to find the maximum loss and time
+                for grp_im_name in grp_bld:
+                    grp_im = grp_bld[grp_im_name]
+                    
+                    if 'RepairCost_Total' in grp_im:
+                        grp_loss = grp_im['RepairCost_Total']
+                        if 'quantiles' in grp_loss:
+                            # The last element of quantiles is the maximum value (100th percentile)
+                            max_loss = grp_loss['quantiles'][-1]
+                            if max_loss > cost:
+                                cost = max_loss
+                                
+                    if 'RepairTime' in grp_im:
+                        grp_time = grp_im['RepairTime']
+                        if 'quantiles' in grp_time:
+                            max_time = grp_time['quantiles'][-1]
+                            if max_time > time:
+                                time = max_time
+            
+            results[pid] = (float(cost), float(time))
+            
+    return results
+
 
 def SimLossRandomly(ReprPSPAID: int, IM: list[float], losstype: str, Nsim: list[int]) -> list[list]:
     '''

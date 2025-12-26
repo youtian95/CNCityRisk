@@ -1224,7 +1224,7 @@ def create_mbtiles_city_regional_losses(CityName: str, ResultsDir = RegionalLoss
             '-dsco', f'NAME=Regional Loss {CityName}',
             '-dsco', f'DESCRIPTION=Regional seismic losses for {CityName}, {LossType}',
             '-dsco', 'COMPRESS=YES',
-            '-dsco', 'MAX_FEATURES=2000',    
+            '-dsco', 'MAX_FEATURES=1500',    
             '-lco', f'NAME=temp_{CityName}_{LossType}_{iSim}',  # 明确指定层名称
             '-nln', f'temp_{CityName}_{LossType}_{iSim}'  # 新图层名称
         ]
@@ -1526,18 +1526,10 @@ def create_mapdata_IM(CityName: str, savedir = RESULTDIR / 'IMmap', iSim: int = 
                         
                         # Create datasets for IM data and write directly to disk
                         # im_median: 2D array [n_sites, n_periods]
-                        rup_group.create_dataset('im_median', 
-                                               data=median_data.astype(np.float32), 
-                                               compression='gzip', 
-                                               compression_opts=6,
-                                               dtype=np.float32)
+                        rup_group.create_dataset('im_median', data=median_data.astype(np.float32), compression='gzip', compression_opts=6, dtype=np.float32)
                         
                         # im_random: 2D array [n_sites, n_periods] for selected iSim
-                        rup_group.create_dataset('im_random', 
-                                               data=random_data.astype(np.float32), 
-                                               compression='gzip', 
-                                               compression_opts=6,
-                                               dtype=np.float32)
+                        rup_group.create_dataset('im_random', data=random_data.astype(np.float32), compression='gzip', compression_opts=6, dtype=np.float32)
                         
                         logger.debug(f"Streamed rupture {i_rup} data to HDF5: {rup_id}, median shape: {median_data.shape}, random shape: {random_data.shape}")
                         

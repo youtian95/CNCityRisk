@@ -4,24 +4,48 @@
 
 本模块 (RegionalLossSim) 提供区域地震损失模拟和分析的完整工具链，包括：
 
-
+------------------
 主要分析函数：
 simulate_regional_losses()
     - 多进程版本的区域地震损失模拟
     - 直接按震源（i_rup）分组存储数据，无需后续重组操作
     - 提高大规模计算效率并优化存储结构
+    [内部调用关系]:
+      -> _simulate_regional_losses_multiprocess() (City Mode): 执行多进程的城市区域损失模拟
+         -> _process_BldLoss_chunk_worker(): 多进程工作函数，处理单个建筑数据块的损失模拟
+      -> _simulate_regional_losses_event() (Region Mode): 执行单事件的区域损失模拟
+      -> _reorganize_RegionBldLoss_by_rupture() (Region Mode): 重组单事件模拟结果为按震源存储的格式
 
+reorganize_BldLoss_by_rupture()
+    - 重新组织已生成的BldLoss文件，按震源分组存储
+    [内部调用关系]:
+      -> _process_reorganize_chunk_worker(): 多进程工作函数，处理单个数据块的重组
+
+------------------
 分析后查询结果函数：
 load_BldLoss_by_rupture()
     - 从重组后的文件中加载指定震源的损失数据
     - 支持单个或多个震源的快速读取
+
 get_total_loss_sim()
     - 通用的区域总损失分布计算接口
     - 自动选择最优的数据源和计算方法
+    [内部调用关系]:
+      -> _get_total_loss_sim_by_rupture(): 带缓存的计算函数，从重组后的文件中获取总损失分布
+         -> _calculate_total_loss_sim_by_rupture_core(): 计算总损失分布的核心逻辑，负责调度多进程计算
+            -> _calculate_rupture_loss_by_rupture(): 多进程工作函数，计算单个震源的损失分布
+
+get_total_loss_and_collapse_ratio_sim()
+    - 计算所有模拟的区域总损失比率，支持按区域分解
+    [内部调用关系]:
+      -> _calculate_grouped_loss_sim_core(): 计算分组（如按行政区）的损失统计
+         -> _calculate_rupture_grouped_loss_worker(): 多进程工作函数，计算单个震源的分组损失
+
 get_statistics_regional_losses()
     - 计算区域地震损失的详细统计信息
     - 包括损失分布、百分位数等统计指标
 
+------------------
 生成地图显示数据：
 
 create_geojson_regional_losses()
@@ -31,6 +55,7 @@ create_statistics_regional_losses()
     - 批量生成所有地震事件的损失统计JSON文件
     - 提供结构化的统计数据输出
 
+------------------
 其他功能函数：
 load_loss_data_to_memory()
      - 将损失数据从HDF5文件加载到内存
@@ -38,6 +63,14 @@ load_loss_data_to_memory()
 get_rupture_simulation_indices()
      - 获取指定震源的模拟索引信息
      - 辅助函数，用于数据索引和验证
+
+------------------
+备用/未使用的内部函数:
+_simulate_regional_losses()
+    - 备用实现：直接按震源分组存储的多进程模拟
+    - 调用: _process_BldLoss_chunk_worker_by_rupture()
+_simulate_regional_losses_single_process()
+    - 备用实现：单进程版本的区域损失模拟
 '''
 
 
@@ -1515,7 +1548,6 @@ def _calculate_rupture_loss_by_rupture(args):
     
     return i_rup_single, total_loss_single
 
-
 def get_total_loss_sim(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: Union[int, list] = 0) -> np.ndarray:
     '''
     计算所有模拟的区域总损失分布
@@ -1551,6 +1583,196 @@ def get_total_loss_sim(CityName: str, ResultsDir: str = RESULTDIR, LossType: str
     
     return total_loss_sim
 
+
+
+def _calculate_rupture_grouped_loss_worker(args):
+    """Worker function to calculate grouped losses for a single rupture."""
+    i_rup, CityName, ResultsDir, indices_dict = args
+    ResultsDir = Path(ResultsDir)
+    
+    # Define file paths
+    file_cost = ResultsDir / CityName / 'BldLoss_RepairCost_Total_ByRupture.hdf5'
+    file_ds = ResultsDir / CityName / 'BldLoss_DS_Struct_ByRupture.hdf5'
+    
+    results = {}
+    
+    try:
+        with h5py.File(file_cost, 'r') as f_cost, h5py.File(file_ds, 'r') as f_ds:
+            grp_name = f'group_rup_{i_rup}'
+            
+            if grp_name not in f_cost or grp_name not in f_ds:
+                return i_rup, None
+
+            # Read data
+            cost_matrix = f_cost[grp_name]['loss_matrix'][:]
+            ds_matrix = f_ds[grp_name]['loss_matrix'][:]
+            
+            # Determine max DS index (Collapse state)
+            max_ds_index = len(BldPSPA_ReprBld.DS_types) - 1
+            
+            for group_name, indices in indices_dict.items():
+                group_cost = cost_matrix[indices, :]
+                group_ds = ds_matrix[indices, :]
+                
+                # Calculate Total Loss
+                total_loss = np.sum(group_cost, axis=0) # Shape: (N_sim,)
+                
+                # Calculate Collapse Count (DS == max_ds_index)
+                collapse_count = np.sum(group_ds == max_ds_index, axis=0) # Shape: (N_sim,)
+                
+                results[group_name] = {
+                    'TotalLoss': total_loss,
+                    'CollapseCount': collapse_count
+                }
+                
+    except Exception as e:
+        logger.error(f"Error in worker for rupture {i_rup}: {e}")
+        return i_rup, None
+        
+    return i_rup, results
+
+def _calculate_grouped_loss_sim_core(CityName, ResultsDir, i_rup_list, indices_dict, n_processes=None):
+    """
+    Core function to calculate grouped losses for multiple ruptures.
+    """
+    
+    if n_processes is None:
+        n_processes = min(mp.cpu_count(), len(i_rup_list), 4)
+        
+    tasks = []
+    for i_rup in i_rup_list:
+        tasks.append((i_rup, CityName, str(ResultsDir), indices_dict))
+        
+    results_all = {}
+    
+    if len(tasks) > 1 and n_processes > 1:
+        logger.info(f"Calculating district-grouped losses for {len(tasks)} ruptures using {n_processes} processes")
+        with mp.Pool(processes=n_processes) as pool:
+            with tqdm(total=len(tasks), desc="Processing Ruptures") as pbar:
+                for i_rup, res in pool.imap_unordered(_calculate_rupture_grouped_loss_worker, tasks):
+                    if res is not None:
+                        results_all[i_rup] = res
+                    pbar.update(1)
+    else:
+        logger.info(f"Calculating district-grouped losses for {len(tasks)} ruptures sequentially")
+        for task in tqdm(tasks, desc="Processing Ruptures"):
+            i_rup, res = _calculate_rupture_grouped_loss_worker(task)
+            if res is not None:
+                results_all[i_rup] = res
+                
+    return results_all
+
+def get_total_loss_and_collapse_ratio_sim(CityName: str, ResultsDir: str = RESULTDIR) -> pd.DataFrame:
+    '''
+    计算所有模拟的区域总损失比率
+
+    Returns:
+        df_ratio_sim (pd.DataFrame): DataFrame containing total loss ratios for each simulation
+            - Columns: ['CityName', 'DistrictName', 'TotalLossRatio', 'CollapseRatio']. TotalLossRatio and CollapseRatio are numpy arrays of shape (N_sim,N_rup)
+    
+    Resulting file saved at:
+        ResultsDir / CityName / 'TotalLossAndCollapseRatio_Sim.csv'
+    '''
+    logger.info(f"Calculating total loss and collapse ratio for {CityName}")
+    ResultsDir = Path(ResultsDir)
+    
+    # 1. Get City Data
+    df_bld = Utilities.get_CityBldData(CityName, ['DistrictName', 'ReprBldID_PSPA'])
+    districts = sorted(df_bld['DistrictName'].unique())
+    
+    # 2. Calculate Reconstruction Cost
+    logger.info("Calculating reconstruction costs for buildings...")
+    unique_repr_ids = [int(x) for x in df_bld['ReprBldID_PSPA'].unique() if not pd.isna(x)]
+    cost_time_dict = BldPSPA_ReprBld.get_reconstruction_cost_and_time(unique_repr_ids)
+    
+    # Map cost
+    df_bld['ReconstructionCost'] = df_bld['ReprBldID_PSPA'].map(lambda x: cost_time_dict.get(x, (0,0))[0])
+    
+    total_cost_district = df_bld.groupby('DistrictName')['ReconstructionCost'].sum()
+    total_cost_city = df_bld['ReconstructionCost'].sum()
+    
+    count_bld_district = df_bld.groupby('DistrictName').size()
+    count_bld_city = len(df_bld)
+    
+    # 3. Prepare Indices for Groups
+    indices_dict = {}
+    for district in districts:
+        indices_dict[district] = df_bld[df_bld['DistrictName'] == district].index.values
+    indices_dict['All'] = df_bld.index.values
+    
+    # 4. Get Ruptures
+    ruptures = EQsources.ReadCityRuptures(CityName)
+    i_rup_list = list(range(len(ruptures)))
+    N_rup = len(ruptures)
+    
+    # 5. Calculate Losses
+    # results_all: Dict[i_rup, Dict[DistrictName, Dict['TotalLoss', 'CollapseCount']]]
+    logger.info("Calculating district-grouped losses for each rupture...")
+    results_all = _calculate_grouped_loss_sim_core(CityName, ResultsDir, i_rup_list, indices_dict)
+    
+    if not results_all:
+        logger.error("No results calculated.")
+        return pd.DataFrame()
+        
+    # Check N_sim from first result
+    first_res = next(iter(results_all.values()))
+    first_group = next(iter(first_res.values()))
+    N_sim = len(first_group['TotalLoss'])
+    
+    # 6. Aggregate Results into Arrays (N_sim, N_rup)
+    data_arrays = {}
+    groups = list(indices_dict.keys())
+    
+    for group in groups:
+        data_arrays[group] = {
+            'TotalLoss': np.zeros((N_sim, N_rup)),
+            'CollapseCount': np.zeros((N_sim, N_rup))
+        }
+    
+    logger.info("Aggregating results into arrays...")
+    for i_rup in i_rup_list:
+        if i_rup in results_all:
+            res_rup = results_all[i_rup]
+            for district in groups:
+                if district in res_rup:
+                    if len(res_rup[district]['TotalLoss']) == N_sim:
+                        data_arrays[district]['TotalLoss'][:, i_rup] = res_rup[district]['TotalLoss']
+                        data_arrays[district]['CollapseCount'][:, i_rup] = res_rup[district]['CollapseCount']
+                        
+    # 7. Calculate Ratios and Build DataFrame
+    rows = []
+    
+    for district in groups:
+        if district == 'All':
+            cost = total_cost_city
+            count = count_bld_city
+        else:
+            cost = total_cost_district.get(district, 0)
+            count = count_bld_district.get(district, 0)
+            
+        loss_array = data_arrays[district]['TotalLoss']
+        collapse_array = data_arrays[district]['CollapseCount']
+        
+        loss_ratio = loss_array / cost if cost > 0 else np.zeros_like(loss_array)
+        collapse_ratio = collapse_array / count if count > 0 else np.zeros_like(collapse_array)
+        
+        rows.append({
+            'CityName': CityName,
+            'DistrictName': district,
+            'TotalLossRatio': loss_ratio,
+            'CollapseRatio': collapse_ratio
+        })
+    
+    df_ratio_sim = pd.DataFrame(rows)
+    
+    # 8. Save to CSV
+    output_file = ResultsDir / CityName / 'TotalLossAndCollapseRatio_Sim.csv'
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    df_ratio_sim.to_csv(output_file, index=False, encoding='utf-8-sig')
+    logger.info(f"Saved TotalLossAndCollapseRatio_Sim to {output_file}")
+    
+    return df_ratio_sim
 
 def get_statistics_regional_losses(CityName: str, ResultsDir: str = RESULTDIR, LossType: str = 'DS_Struct', i_rup: Union[int, list] = 0, iSim: int = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     '''

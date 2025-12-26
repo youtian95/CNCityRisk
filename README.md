@@ -3,10 +3,6 @@
 ## 项目简介
 本项目评估了国内主要城市的抗震韧性，提供相关数据和分析结果。
 
-## 计划
-
-- `research`：汶川地震的建筑群损失验证：验证分析对比
-
 ## 文件结构
 
 - `config.ini`：【需要手动新建】配置文件，包括APIkey。内容：
@@ -47,7 +43,8 @@
     - 打开Anaconda Prompt（或终端）。
     - 使用以下命令创建一个新的虚拟环境（例如，环境名称为`quake_resilience`）：
       ```bash
-      conda create -n quake_resilience python=3.12
+      conda create -n quake_resilience python=3.12 numpy==1.26.2
+      # 备注：numpy版本其他版本可能会与openquake.engine冲突
       ```
 2. **激活虚拟环境**：
       ```bash
@@ -55,7 +52,7 @@
       ```
 3. **安装依赖**：
       ```bash
-      pip install openquake.engine BldStructPred MDOFModel BldCluster h5py folium cartopy dask geojsoncontour addressparser pypinyin py7zr rasterio numpy==1.26.2 cnmaps
+      pip install openquake.engine BldStructPred MDOFModel BldCluster h5py folium cartopy dask geojsoncontour addressparser pypinyin py7zr rasterio cnmaps
       # 备注：numpy版本其他版本可能会与openquake.engine冲突
       ```
 4. **安装当前项目包**：
