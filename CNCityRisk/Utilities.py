@@ -17,6 +17,7 @@ import json
 import sys
 import BldStructPred
 import numpy as np
+import shutil
 from packaging import version
 import re
 from typing import Optional, Tuple, List, Dict, Any
@@ -1234,6 +1235,130 @@ def minify_html(html_path):
     except Exception as e:
         print(f"Error compressing HTML: {e}")
         return False
+
+
+def _copy_file_to_web_static(
+    src: Path,
+    dst: Path,
+    report: Dict[str, Any],
+    kind: str,
+    overwrite: bool = False,
+) -> bool:
+    """Copy one file and record status to report."""
+    if not src.exists():
+        report['missing'].append({'kind': kind, 'source': str(src), 'target': str(dst)})
+        return False
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if dst.exists() and not overwrite:
+        report['copied'].append({'kind': kind, 'source': str(src), 'target': str(dst), 'status': 'skipped_exists'})
+        return True
+
+    shutil.copy2(src, dst)
+    report['copied'].append({'kind': kind, 'source': str(src), 'target': str(dst), 'status': 'copied'})
+    return True
+
+
+def package_web_static_map_data(
+    CityName: str,
+    WebStaticMapsDir: Optional[str] = None,
+    iSim: int = 0,
+    LossTypes: Tuple[str, ...] = ('DS_Struct',),
+    Overwrite: bool = False,
+    Strict: bool = True,
+) -> Dict[str, Any]:
+    """
+    Package static map data for web plotting into CNCityRiskWeb/static/maps.
+
+    Target structure:
+        - mbtiles/RegionalLoss_{City}_{LossType}_{iSim}_ogr2ogr.mbtiles
+        - RegionalLossStatistics/{City}/RegionalLossStatistics_{LossType}.json
+        - IMmap/IM_mapdata_{City}.hdf5
+        - Ruptures/{City}.csv
+        - AnnualizedRisk/{City}/*.csv
+
+    Parameters:
+        CityName (str): City name.
+        WebStaticMapsDir (str): Target directory. If None, default is ../CNCityRiskWeb/static/maps.
+        iSim (int): Simulation index used in MBTiles naming.
+        LossTypes (tuple | list | str): Loss types to package.
+        Overwrite (bool): Whether to overwrite existing target files.
+        Strict (bool): If True, raise FileNotFoundError when any required source file is missing.
+
+    Returns:
+        dict: Packaging summary, including copied/missing files.
+    """
+    from . import CreateRegionalMaps
+    from . import AnnualizedRisk
+    from . import EQsources
+
+    if WebStaticMapsDir is None:
+        WebStaticMapsDir = (Path(__file__).resolve().parent.parent / 'CNCityRiskWeb' / 'static' / 'maps').resolve()
+    else:
+        WebStaticMapsDir = Path(WebStaticMapsDir).resolve()
+
+    # Normalize loss types to avoid iterating over each character when a single string is passed.
+    if isinstance(LossTypes, str):
+        loss_types = [LossTypes]
+    elif isinstance(LossTypes, (tuple, list)):
+        loss_types = list(LossTypes)
+    else:
+        raise TypeError('LossTypes must be a str, list, or tuple of strings.')
+
+    report: Dict[str, Any] = {
+        'city': CityName,
+        'target_root': str(WebStaticMapsDir),
+        'copied': [],
+        'missing': [],
+    }
+
+    # 1) MBTiles
+    for loss_type in loss_types:
+        src = CreateRegionalMaps.RESULTDIR / 'mbtiles' / f'RegionalLoss_{CityName}_{loss_type}_{iSim}_ogr2ogr.mbtiles'
+        dst = WebStaticMapsDir / 'mbtiles' / src.name
+        _copy_file_to_web_static(src, dst, report, kind='mbtiles', overwrite=Overwrite)
+
+    # 2) Regional loss statistics JSON
+    for loss_type in loss_types:
+        src = CreateRegionalMaps.RESULTDIR / 'RegionalLossStatistics' / CityName / f'RegionalLossStatistics_{loss_type}.json'
+        dst = WebStaticMapsDir / 'RegionalLossStatistics' / CityName / src.name
+        _copy_file_to_web_static(src, dst, report, kind='regional_loss_statistics', overwrite=Overwrite)
+
+    # 3) IM mapdata HDF5
+    src_im = CreateRegionalMaps.RESULTDIR / 'IMmap' / f'IM_mapdata_{CityName}.hdf5'
+    dst_im = WebStaticMapsDir / 'IMmap' / src_im.name
+    _copy_file_to_web_static(src_im, dst_im, report, kind='im_mapdata_hdf5', overwrite=Overwrite)
+
+    # 4) Ruptures table (always generated from latest rupture table)
+    rupture_dst = WebStaticMapsDir / 'Ruptures' / f'{CityName}.csv'
+    rupture_dst.parent.mkdir(parents=True, exist_ok=True)
+    rup_df = EQsources.ReadCityRuptures(CityName)
+    rup_df.to_csv(rupture_dst, index=False, encoding='utf-8-sig')
+    report['copied'].append({'kind': 'ruptures_csv', 'source': 'EQsources.ReadCityRuptures', 'target': str(rupture_dst), 'status': 'generated'})
+
+    # 5) Annualized risk CSVs
+    annualized_required = [
+        'mean_annual_freq_mag.csv',
+        'mean_annual_freq_RepairCost_Total.csv',
+        'mean_annual_freq_RepairTime.csv',
+        'mean_annual_loss_with_year_RepairCost_Total.csv',
+        'mean_annual_loss_with_year_RepairTime.csv',
+    ]
+    for filename in annualized_required:
+        src = AnnualizedRisk.RESULTDIR / CityName / filename
+        dst = WebStaticMapsDir / 'AnnualizedRisk' / CityName / filename
+        _copy_file_to_web_static(src, dst, report, kind='annualized_risk_csv', overwrite=Overwrite)
+
+    if Strict and report['missing']:
+        missing_desc = '\n'.join(f"- {item['source']}" for item in report['missing'])
+        raise FileNotFoundError(
+            f"Some required files are missing for city '{CityName}'.\n"
+            f"Please generate source files first, then run packaging again.\n"
+            f"Missing files:\n{missing_desc}"
+        )
+
+    return report
 
 
 

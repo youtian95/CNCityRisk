@@ -162,6 +162,8 @@ if __name__ == '__main__':
 
     # analyze_1_city('武汉')
     # analyze_1_city('合肥')
-    analyze_1_city('重庆')
+    # analyze_1_city('重庆')
 
-    # reproduce_wenchuan2008_event()
+    # Utilities.package_web_static_map_data(CityName='重庆', WebStaticMapsDir=r'H:\2025 - City Resilience Assessment\temp')
+
+    reproduce_wenchuan2008_event()

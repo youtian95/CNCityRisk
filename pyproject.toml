@@ -41,12 +41,14 @@ dependencies = [
 Homepage = "https://github.com/youtian95/CNCityRisk"
 "Bug Tracker" = "https://github.com/youtian95/CNCityRisk/issues"
 
-[tool.hatch.build.targets.wheel]
-artifacts = [
-  "CNCityRisk/results/BldData/",
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "CNCityRisk/results/BldData/*.csv",
+  "CNCityRisk/results/BldData/Region_*",
 ]
 
-[tool.hatch.build.targets.sdist]
-artifacts = [
-  "CNCityRisk/results/BldData/",
+[tool.hatch.build.targets.wheel]
+exclude = [
+  "CNCityRisk/results/BldData/*.csv",
+  "CNCityRisk/results/BldData/Region_*",
 ]
