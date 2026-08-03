@@ -1,3 +1,13 @@
+"""
+城市地震年均风险计算模块。
+
+使用流程：读取城市震源目录和区域损失模拟结果，计算震级、维修费用、
+维修时间、损失比及倒塌率的年均超越频率曲线。
+
+输入：城市名称、震源发生次数、模拟年限及各震源损失样本。
+输出：城市及区县尺度的年均超越频率 CSV 文件。
+"""
+
 from . import Utilities
 from . import EQsources
 from . import RegionalLossSim
@@ -150,12 +160,12 @@ def _calc_and_save_freq_curve(values, multiplicity, years, filepath, col_name):
     
     N_sim, N_rup = values.shape
     
-    # Flatten values
+    # 按“模拟次数、震源”顺序逐行展开损失矩阵。
     flat_values = values.flatten() # (N_sim * N_rup,)
     
-    # Create weights
-    # Each simulation for rupture i has weight multiplicity[i] / N_sim
-    weights = np.repeat(multiplicity / N_sim, N_sim) # (N_sim * N_rup,)
+    # 每次模拟都依次对应全部震源，因此用 tile 保持权重与展平值对齐。
+    # 震源 i 的每个模拟样本权重为 multiplicity[i] / N_sim。
+    weights = np.tile(multiplicity / N_sim, N_sim) # (N_sim * N_rup,)
     
     # Sort values and weights
     sort_idx = np.argsort(flat_values)

@@ -1,5 +1,12 @@
 # 更新日志 (Changelog)
 
+## [0.3.6] - 2026-8-3
+
+### 更改 (Changed)
+
+- [x] 修改bug: event_based_mfd.csv 是发生频率而不是超越频率
+- [x] 修改bug: `weights = np.repeat(multiplicity / N_sim, N_sim)` 改成 `np.tile`
+
 ## [0.3.5] - 2026-7-31
 
 ### 更改 (Changed)

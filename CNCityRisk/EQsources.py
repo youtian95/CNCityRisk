@@ -1,3 +1,13 @@
+"""
+地震源与随机地震事件处理模块。
+
+使用流程：读取 GEM China 震源模型，通过 OpenQuake 生成城市随机地震目录，
+再读取震源、事件和震级频率结果供地震动模拟及年均风险计算使用。
+
+输入：城市名称、城市空间范围、OpenQuake 震源与事件结果。
+输出：震源/事件表、地图，以及震级年均超越频率曲线。
+"""
+
 from . import Utilities
 from . import plot_city
 from . import Logger
@@ -336,29 +346,52 @@ def ReadCityRuptures(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.D
     logger.info(f"Rupture data reading completed, total {len(rup_df)} records")
     return rup_df
 
-def get_mean_annual_freq_mag(CityName: str, results_dir = EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
+def _convert_incremental_mfd_to_exceedance(freq_mag_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Read the mean annual frequency of exceeding a certain magnitude for a given city.
-    
+    将分震级档的增量发生频率转换为震级年均超越频率。
+
+    Parameters:
+        freq_mag_df: OpenQuake event_based_mfd 数据，至少包含 mag 和
+            freq 两列；freq 表示对应震级档的年均发生频率。
+
     Returns:
-        pd.DataFrame: A DataFrame containing the annualized frequency of exceeding each magnitude. Two columns: 'Magnitude' and 'Frequency'.
+        按震级升序排列的数据表。其中 Frequency 为大于等于相应震级的
+        年均发生频率，因此随震级单调不增。
+    """
+    # 同一震级可能由多个震源贡献，先合并各震级档的增量频率。
+    incremental_mfd = (
+        freq_mag_df[['mag', 'freq']]
+        .groupby('mag', as_index=False, sort=True)['freq']
+        .sum()
+    )
+
+    # 从最大震级向最小震级累加，得到 M >= m 对应的年均超越频率。
+    incremental_mfd['Frequency'] = incremental_mfd['freq'][::-1].cumsum()[::-1]
+    return incremental_mfd.rename(columns={'mag': 'Magnitude'})[['Magnitude', 'Frequency']]
+
+
+def get_mean_annual_freq_mag(CityName: str, results_dir=EQ_SOURCES_OUTPUT_DIR) -> pd.DataFrame:
+    """
+    读取 OpenQuake 增量震级频率，并计算给定城市的震级年均超越频率。
+
+    Parameters:
+        CityName: 城市名称。
+        results_dir: OpenQuake 城市结果的根目录。
+
+    Returns:
+        包含 Magnitude 和 Frequency 两列的数据表。
     """
     logger.info(f"Calculating mean annual frequency of magnitude for city: {CityName}")
-    
-    results_dir = results_dir / CityName
-    # Find the event-based MFD file with pattern similar to event_based_mfd_71.csv
-    freq_mag_file = None
-    for file in results_dir.glob('event_based_mfd_*.csv'):
-        freq_mag_file = file
-        break
-    
-    if freq_mag_file.exists():
-        freq_mag_df = pd.read_csv(freq_mag_file, header=1)
-        # Rename columns from original 'mag', 'freq' to standard names
-        freq_mag_df.rename(columns={'mag': 'Magnitude', 'freq': 'Frequency'}, inplace=True)
-        logger.info(f"Mean annual frequency of magnitude data loaded from {freq_mag_file}")
-    else:
-        logger.error(f"Mean annual frequency of magnitude file not found: {freq_mag_file}")
+
+    city_results_dir = results_dir / CityName
+    # OpenQuake 的 event_based_mfd 是分震级档的增量频率，不是超越频率。
+    freq_mag_file = next(city_results_dir.glob('event_based_mfd_*.csv'), None)
+
+    if freq_mag_file is None:
+        logger.error(f"Mean annual frequency of magnitude file not found in: {city_results_dir}")
         return None
-    
-    return freq_mag_df
+
+    incremental_mfd = pd.read_csv(freq_mag_file, header=1)
+    exceedance_mfd = _convert_incremental_mfd_to_exceedance(incremental_mfd)
+    logger.info(f"Mean annual frequency of magnitude exceedance loaded from {freq_mag_file}")
+    return exceedance_mfd
