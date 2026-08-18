@@ -528,6 +528,9 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
             df = pd.read_csv(POI_file)
         else:
             raise Exception(f"Unsupported file format: {POI_file.suffix}")
+        # 个别 POI 文件（如南京的生活服务）用 分类1~3 作为分类列，统一重命名为 大类/中类/小类
+        if '大类' not in df.columns and '分类1' in df.columns:
+            df = df.rename(columns={'分类1': '大类', '分类2': '中类', '分类3': '小类'})
         if 'wgs84lon' in df.columns and 'wgs84lat' in df.columns:
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['wgs84lon'], df['wgs84lat']))
         elif 'WGS84_经度' in df.columns and 'WGS84_纬度' in df.columns:
