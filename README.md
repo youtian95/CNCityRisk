@@ -4,6 +4,20 @@
 
 本项目评估了国内主要城市的抗震韧性，提供相关数据和分析结果。
 
+## 分析流程
+
+### 一般城市分析流程
+
+- `main.py`中`CityName`改为指定的城市名字，不要带“市”。
+
+- 运行 `main.py`，会在`results`文件夹中生成分析结果。
+
+- 运行完 `Utilities.package_web_static_map_data()` 之后，把5个文件夹中（AnnualizedRisk, IMmap, mbtiles, RegionalLossStatistics, Ruptures）的内容复制到`CNCityRiskWeb\static\maps`文件夹中，就能在网页上查看分析结果。
+
+### 特殊情况 - 汶川地震的区域分析验证
+
+`main.py`中有一个`reproduce_wenchuan2008_event()`函数，用于复现汶川地震的区域分析验证。
+
 ## 文件结构
 
 - `config.ini`：【需要手动新建】配置文件，包括APIkey。内容：

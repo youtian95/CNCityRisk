@@ -1,198 +1,197 @@
-[2025-01-17 19:55:46 #71 WARNING] ps_grid_spacing is ignored in event_based calculations
-[2025-01-17 19:55:46 #71 INFO] youtian@DESKTOP-721RJ6D running H:\国内主要城市的抗震韧性概率评估\CNCityRisk\Data\GEM-CHN-v2021.1.0\job.ini [--hc=None]
-[2025-01-17 19:55:46 #71 INFO] Using engine version 3.21.0
-[2025-01-17 19:55:47 #71 WARNING] Using 6 processpool workers
-[2025-01-17 19:55:47 #71 INFO] Running EventBasedCalculator with concurrent_tasks = 12
-[2025-01-17 19:55:52 #71 INFO] Checksum of the inputs: 658191945 (total size 491.62 MB)
-[2025-01-17 19:55:52 #71 INFO] Extracting the hazard sites from the site model
-[2025-01-17 19:55:52 #71 INFO] Read N=300 hazard sites and L=25 hazard levels
-[2025-01-17 19:55:52 #71 INFO] Reading H:\国内主要城市的抗震韧性概率评估\CNCityRisk\Data\GEM-CHN-v2021.1.0\ssmLT.xml
-[2025-01-17 19:55:53 #71 INFO] Building 2_000 realizations
-[2025-01-17 19:55:53 #71 INFO] Considering 2_000 logic tree paths out of 432, unique 425
-[2025-01-17 19:55:53 #71 INFO] Reading the source model(s) in parallel
-[2025-01-17 19:55:53 #71 WARNING] Sent 12 read_source_model tasks, 6.41 KB
-[2025-01-17 19:55:58 #71 INFO] read_source_model   7% [13 submitted, 92 queued]
-[2025-01-17 19:55:58 #71 INFO] read_source_model  14% [14 submitted, 91 queued]
-[2025-01-17 19:55:58 #71 INFO] read_source_model  20% [15 submitted, 90 queued]
-[2025-01-17 19:55:58 #71 INFO] read_source_model  25% [16 submitted, 89 queued]
-[2025-01-17 19:55:58 #71 INFO] read_source_model  29% [17 submitted, 88 queued]
-[2025-01-17 19:55:58 #71 INFO] read_source_model  33% [18 submitted, 87 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  36% [19 submitted, 86 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  40% [20 submitted, 85 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  42% [21 submitted, 84 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  45% [22 submitted, 83 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  47% [23 submitted, 82 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  50% [24 submitted, 81 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  52% [25 submitted, 80 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  53% [26 submitted, 79 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  55% [27 submitted, 78 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  57% [28 submitted, 77 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  58% [29 submitted, 76 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  60% [30 submitted, 75 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  61% [31 submitted, 74 queued]
-[2025-01-17 19:55:59 #71 INFO] read_source_model  62% [32 submitted, 73 queued]
-[2025-01-17 19:56:00 #71 INFO] read_source_model  63% [33 submitted, 72 queued]
-[2025-01-17 19:56:00 #71 INFO] read_source_model  64% [34 submitted, 71 queued]
-[2025-01-17 19:56:00 #71 INFO] read_source_model  65% [35 submitted, 70 queued]
-[2025-01-17 19:56:00 #71 INFO] read_source_model  66% [36 submitted, 69 queued]
-[2025-01-17 19:56:01 #71 INFO] read_source_model  67% [37 submitted, 68 queued]
-[2025-01-17 19:56:01 #71 INFO] read_source_model  68% [38 submitted, 67 queued]
-[2025-01-17 19:56:01 #71 INFO] read_source_model  69% [39 submitted, 66 queued]
-[2025-01-17 19:56:01 #71 INFO] read_source_model  70% [40 submitted, 65 queued]
-[2025-01-17 19:56:02 #71 INFO] read_source_model  71% [42 submitted, 63 queued]
-[2025-01-17 19:56:03 #71 INFO] read_source_model  72% [43 submitted, 62 queued]
-[2025-01-17 19:56:03 #71 INFO] read_source_model  73% [45 submitted, 60 queued]
-[2025-01-17 19:56:03 #71 INFO] read_source_model  74% [47 submitted, 58 queued]
-[2025-01-17 19:56:04 #71 INFO] read_source_model  75% [48 submitted, 57 queued]
-[2025-01-17 19:56:04 #71 INFO] read_source_model  76% [50 submitted, 55 queued]
-[2025-01-17 19:56:04 #71 INFO] read_source_model  77% [53 submitted, 52 queued]
-[2025-01-17 19:56:04 #71 INFO] read_source_model  78% [55 submitted, 50 queued]
-[2025-01-17 19:56:05 #71 INFO] read_source_model  79% [58 submitted, 47 queued]
-[2025-01-17 19:56:05 #71 INFO] read_source_model  80% [60 submitted, 45 queued]
-[2025-01-17 19:56:06 #71 INFO] read_source_model  81% [64 submitted, 41 queued]
-[2025-01-17 19:56:10 #71 INFO] read_source_model  82% [67 submitted, 38 queued]
-[2025-01-17 19:56:10 #71 INFO] read_source_model  83% [71 submitted, 34 queued]
-[2025-01-17 19:56:10 #71 INFO] read_source_model  84% [75 submitted, 30 queued]
-[2025-01-17 19:56:11 #71 INFO] read_source_model  85% [80 submitted, 25 queued]
-[2025-01-17 19:56:12 #71 INFO] read_source_model  86% [86 submitted, 19 queued]
-[2025-01-17 19:56:14 #71 INFO] read_source_model  87% [93 submitted, 12 queued]
-[2025-01-17 19:56:15 #71 INFO] read_source_model  88% [100 submitted, 5 queued]
-[2025-01-17 19:56:16 #71 INFO] read_source_model  89% [105 submitted, 0 queued]
-[2025-01-17 19:56:16 #71 INFO] read_source_model  90% [105 submitted, 0 queued]
-[2025-01-17 19:56:16 #71 INFO] read_source_model  91% [105 submitted, 0 queued]
-[2025-01-17 19:56:20 #71 INFO] read_source_model  92% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  93% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  94% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  95% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  96% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  97% [105 submitted, 0 queued]
-[2025-01-17 19:56:21 #71 INFO] read_source_model  98% [105 submitted, 0 queued]
-[2025-01-17 19:56:35 #71 INFO] read_source_model  99% [105 submitted, 0 queued]
-[2025-01-17 19:56:35 #71 INFO] read_source_model 100% [105 submitted, 0 queued]
-[2025-01-17 19:56:35 #71 INFO] Mean time per core=19s, std=6.1s, min=15s, max=32s
-[2025-01-17 19:56:35 #71 INFO] Received 105 * 1.51 MB in 41 seconds [unpik=9.75s] from read_source_model
-{'H:\\国内主要城市的抗震韧性概率评估\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\unit_m10\\bg_1_20.xml': '7.16 MB', 'H:\\国内主要城市的抗震韧性概率评估\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\unit_m8\\bg_1_20.xml': '7.16 MB', 'H:\\国内主要城市的抗震韧性概率评估\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\mfd_m10\\bg_1_20.xml': '7.16 MB'}
-[2025-01-17 19:56:43 #71 WARNING] Found different sources with same ID [bg_1_1, bg_1_10, bg_1_11, ..., bg_1_7, bg_1_8, bg_1_9]
-[2025-01-17 19:56:43 #71 INFO] Applying uncertainties
-[2025-01-17 19:57:08 #71 INFO] Rupture floating factor = 2.8640838611676362
-[2025-01-17 19:57:08 #71 INFO] Rupture spinning factor = 2.462941732825084
-[2025-01-17 19:57:08 #71 INFO] min_iml=[1.e-10]
-[2025-01-17 19:57:08 #71 INFO] Counting the ruptures in the CompositeSourceModel
-[2025-01-17 19:57:09 #71 WARNING] Sent 12 count_ruptures tasks, 0 B
-[2025-01-17 19:57:15 #71 INFO] Mean time per core=0s, std=0.2s, min=0s, max=0s
-[2025-01-17 19:57:15 #71 INFO] Received 56 * 16.14 B in 6 seconds [unpik=0.00s] from count_ruptures
-{'mps-01;3': '17 B', 'mps-18;3': '17 B', 'mps-17;3': '17 B'}
-[2025-01-17 19:57:23 #71 INFO] Building ruptures
-[2025-01-17 19:57:23 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
-[2025-01-17 19:57:23 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39615 source(s), weight=9916844>
-[2025-01-17 19:57:23 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39615 source(s), weight=9916844>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39700 source(s), weight=9932546>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39700 source(s), weight=9932546>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24133 source(s), weight=9217140>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24133 source(s), weight=9217140>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24172 source(s), weight=9236796>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
-[2025-01-17 19:57:24 #71 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24172 source(s), weight=9236796>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
-[2025-01-17 19:57:24 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
-[2025-01-17 19:57:25 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
-[2025-01-17 19:57:25 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
-[2025-01-17 19:57:26 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
-[2025-01-17 19:57:27 #71 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
-[2025-01-17 19:57:30 #71 WARNING] Sent 12 sample_ruptures tasks, 82.1 MB
-[2025-01-17 19:57:30 #71 WARNING] Using over 90% of the memory in DESKTOP-721RJ6D!
-[2025-01-17 19:57:30 #71 INFO] sample_ruptures   7% [13 submitted, 23 queued]
-[2025-01-17 19:57:30 #71 INFO] sample_ruptures  14% [14 submitted, 22 queued]
-[2025-01-17 19:57:30 #71 INFO] sample_ruptures  20% [15 submitted, 21 queued]
-[2025-01-17 19:57:35 #71 INFO] sample_ruptures  25% [16 submitted, 20 queued]
-[2025-01-17 19:57:36 #71 INFO] sample_ruptures  29% [17 submitted, 19 queued]
-[2025-01-17 19:57:37 #71 INFO] sample_ruptures  33% [18 submitted, 18 queued]
-[2025-01-17 19:57:39 #71 INFO] sample_ruptures  36% [19 submitted, 17 queued]
-[2025-01-17 19:57:42 #71 INFO] sample_ruptures  40% [20 submitted, 16 queued]
-[2025-01-17 19:57:43 #71 INFO] sample_ruptures  42% [21 submitted, 15 queued]
-[2025-01-17 19:57:43 #71 INFO] sample_ruptures  45% [22 submitted, 14 queued]
-[2025-01-17 19:57:47 #71 INFO] sample_ruptures  47% [23 submitted, 13 queued]
-[2025-01-17 19:57:50 #71 INFO] sample_ruptures  50% [24 submitted, 12 queued]
-[2025-01-17 19:57:51 #71 INFO] sample_ruptures  52% [25 submitted, 11 queued]
-[2025-01-17 19:57:52 #71 INFO] sample_ruptures  53% [26 submitted, 10 queued]
-[2025-01-17 19:57:56 #71 INFO] sample_ruptures  55% [27 submitted, 9 queued]
-[2025-01-17 19:57:57 #71 INFO] sample_ruptures  57% [28 submitted, 8 queued]
-[2025-01-17 19:58:03 #71 INFO] sample_ruptures  58% [29 submitted, 7 queued]
-[2025-01-17 19:58:03 #71 INFO] sample_ruptures  60% [30 submitted, 6 queued]
-[2025-01-17 19:58:08 #71 INFO] sample_ruptures  61% [31 submitted, 5 queued]
-[2025-01-17 19:58:08 #71 INFO] sample_ruptures  62% [32 submitted, 4 queued]
-[2025-01-17 19:58:09 #71 INFO] sample_ruptures  63% [33 submitted, 3 queued]
-[2025-01-17 19:58:09 #71 INFO] sample_ruptures  64% [34 submitted, 2 queued]
-[2025-01-17 19:58:10 #71 INFO] sample_ruptures  65% [35 submitted, 1 queued]
-[2025-01-17 19:58:10 #71 INFO] sample_ruptures  66% [36 submitted, 0 queued]
-[2025-01-17 19:58:11 #71 INFO] sample_ruptures  69% [36 submitted, 0 queued]
-[2025-01-17 19:58:11 #71 INFO] sample_ruptures  72% [36 submitted, 0 queued]
-[2025-01-17 19:58:20 #71 INFO] sample_ruptures  75% [36 submitted, 0 queued]
-[2025-01-17 19:58:23 #71 INFO] sample_ruptures  77% [36 submitted, 0 queued]
-[2025-01-17 19:58:26 #71 INFO] sample_ruptures  80% [36 submitted, 0 queued]
-[2025-01-17 19:58:27 #71 INFO] sample_ruptures  83% [36 submitted, 0 queued]
-[2025-01-17 19:58:27 #71 INFO] sample_ruptures  86% [36 submitted, 0 queued]
-[2025-01-17 19:58:27 #71 INFO] sample_ruptures  88% [36 submitted, 0 queued]
-[2025-01-17 19:58:28 #71 INFO] sample_ruptures  91% [36 submitted, 0 queued]
-[2025-01-17 19:58:29 #71 INFO] sample_ruptures  94% [36 submitted, 0 queued]
-[2025-01-17 19:58:32 #71 INFO] sample_ruptures  97% [36 submitted, 0 queued]
-[2025-01-17 19:58:32 #71 INFO] sample_ruptures 100% [36 submitted, 0 queued]
-[2025-01-17 19:58:32 #71 INFO] Mean time per core=58s, std=2.0s, min=56s, max=61s
-[2025-01-17 19:58:32 #71 INFO] Received 152 * 8.27 KB in 64 seconds [unpik=0.01s] from sample_ruptures
-{'source_data': '1.17 MB', 'rup_array': '55.49 KB', 'eff_ruptures': '822 B'}
-[2025-01-17 19:58:32 #71 INFO] Generated 56/56 ruptures, stored in 64.87596035003662 seconds
-[2025-01-17 19:58:33 #71 INFO] There are 28 groups and 148 sources with len(trt_smrs)=1.00
-[2025-01-17 19:58:33 #71 WARNING] No sources for some TRTs: you should set
-discard_trts = Craton, Deep Crust 1, Active Shallow Crust, Himalayan Thrust
-in H:\国内主要城市的抗震韧性概率评估\CNCityRisk\Data\GEM-CHN-v2021.1.0\job.ini
-[2025-01-17 19:58:33 #71 INFO] Reordering the ruptures and storing the events
-[2025-01-17 19:58:33 #71 INFO] Building 2_000 realizations
-[2025-01-17 19:58:33 #71 INFO] There are 57 events and 56 ruptures in 2_000 years (mean mag=5.52)
-[2025-01-17 19:58:34 #71 INFO] Reading 56 ruptures
-[2025-01-17 19:58:34 #71 INFO] Affected sites ~63 per rupture, max=249
-[2025-01-17 19:58:34 #71 INFO] maxw = 6
-[2025-01-17 19:58:34 #71 WARNING] Sent 16 event_based tasks, 919.45 KB
-[2025-01-17 19:58:34 #71 INFO] event_based   6% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  12% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  18% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  25% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  31% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  37% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  43% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  50% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  56% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  62% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  68% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  75% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  81% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  87% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based  93% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] event_based 100% [16 submitted, 0 queued]
-[2025-01-17 19:58:34 #71 INFO] Mean time per core=0s, std=0.0s, min=0s, max=0s
-[2025-01-17 19:58:34 #71 INFO] Received 16 * 2.97 KB in 0 seconds [unpik=0.00s] from event_based
-{'gmfdata': '36.43 KB', 'sig_eps': '5.54 KB', 'times': '5.51 KB'}
-[2025-01-17 19:58:34 #71 INFO] Stored 25.82 KB of GMFs
-[2025-01-17 19:58:34 #71 INFO] Stored 52 relevant event IDs
-[2025-01-17 19:58:35 #71 INFO] Checking stored GMFs
-[2025-01-17 19:58:35 #71 INFO] No PGAs over 5 g found
-[2025-01-17 19:58:35 #71 INFO] Exposing the outputs to the database
-[2025-01-17 19:58:35 #71 INFO]   id | name
- 197 | Annual Frequency of Events
- 202 | Earthquake Ruptures
- 198 | Events
- 199 | Full Report
- 200 | Ground Motion Fields
- 201 | Realizations
-[2025-01-17 19:58:35 #71 INFO] Stored 331.56 KB on C:\Users\youti\oqdata\calc_71.hdf5 in 167 seconds
+[2026-08-12 20:25:03 #74 WARNING] ps_grid_spacing is ignored in event_based calculations
+[2026-08-12 20:25:03 #74 INFO] youtian@DESKTOP-721RJ6D running H:\2025 - City Resilience Assessment\CNCityRisk\Data\GEM-CHN-v2021.1.0\job.ini [--hc=None]
+[2026-08-12 20:25:03 #74 INFO] Using engine version 3.23.2
+[2026-08-12 20:25:04 #74 WARNING] An error occurred while calling https://api.openquake.org/engine/latest to check if the installed version of the engine is up to date.
+[2026-08-12 20:25:04 #74 WARNING] Using 6 processpool workers
+[2026-08-12 20:25:04 #74 INFO] Running EventBasedCalculator with concurrent_tasks = 12
+[2026-08-12 20:25:14 #74 INFO] Checksum of the inputs: 2789959355 (total size 491.62 MB)
+[2026-08-12 20:25:14 #74 INFO] Extracting the hazard sites from the site model
+[2026-08-12 20:25:14 #74 INFO] Read N=336 hazard sites and L=25 hazard levels
+[2026-08-12 20:25:14 #74 INFO] Reading H:\2025 - City Resilience Assessment\CNCityRisk\Data\GEM-CHN-v2021.1.0\ssmLT.xml
+[2026-08-12 20:25:15 #74 INFO] Building 2_000 realizations
+[2026-08-12 20:25:15 #74 INFO] Considering 2_000 logic tree paths out of 432, unique 425
+[2026-08-12 20:25:15 #74 INFO] Reading the source model(s) in parallel
+[2026-08-12 20:25:15 #74 WARNING] Sent 12 read_source_model tasks, 6.27 KB
+[2026-08-12 20:25:23 #74 INFO] read_source_model   7% [13 submitted, 92 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  14% [14 submitted, 91 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  20% [15 submitted, 90 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  25% [16 submitted, 89 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  29% [17 submitted, 88 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  33% [18 submitted, 87 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  36% [19 submitted, 86 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  40% [20 submitted, 85 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  42% [21 submitted, 84 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  45% [22 submitted, 83 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  47% [23 submitted, 82 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  50% [24 submitted, 81 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  52% [25 submitted, 80 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  53% [26 submitted, 79 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  55% [27 submitted, 78 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  57% [28 submitted, 77 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  58% [29 submitted, 76 queued]
+[2026-08-12 20:25:24 #74 INFO] read_source_model  60% [30 submitted, 75 queued]
+[2026-08-12 20:25:25 #74 INFO] read_source_model  61% [31 submitted, 74 queued]
+[2026-08-12 20:25:25 #74 INFO] read_source_model  62% [32 submitted, 73 queued]
+[2026-08-12 20:25:25 #74 INFO] read_source_model  63% [33 submitted, 72 queued]
+[2026-08-12 20:25:25 #74 INFO] read_source_model  64% [34 submitted, 71 queued]
+[2026-08-12 20:25:25 #74 INFO] read_source_model  65% [35 submitted, 70 queued]
+[2026-08-12 20:25:26 #74 INFO] read_source_model  66% [36 submitted, 69 queued]
+[2026-08-12 20:25:26 #74 INFO] read_source_model  67% [37 submitted, 68 queued]
+[2026-08-12 20:25:26 #74 INFO] read_source_model  68% [38 submitted, 67 queued]
+[2026-08-12 20:25:27 #74 INFO] read_source_model  69% [39 submitted, 66 queued]
+[2026-08-12 20:25:27 #74 INFO] read_source_model  70% [40 submitted, 65 queued]
+[2026-08-12 20:25:27 #74 INFO] read_source_model  71% [42 submitted, 63 queued]
+[2026-08-12 20:25:28 #74 INFO] read_source_model  72% [43 submitted, 62 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  73% [45 submitted, 60 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  74% [47 submitted, 58 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  75% [48 submitted, 57 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  76% [50 submitted, 55 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  77% [53 submitted, 52 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  78% [55 submitted, 50 queued]
+[2026-08-12 20:25:30 #74 INFO] read_source_model  79% [58 submitted, 47 queued]
+[2026-08-12 20:25:31 #74 INFO] read_source_model  80% [60 submitted, 45 queued]
+[2026-08-12 20:25:32 #74 INFO] read_source_model  81% [64 submitted, 41 queued]
+[2026-08-12 20:25:34 #74 INFO] read_source_model  82% [67 submitted, 38 queued]
+[2026-08-12 20:25:36 #74 INFO] read_source_model  83% [71 submitted, 34 queued]
+[2026-08-12 20:25:37 #74 INFO] read_source_model  84% [75 submitted, 30 queued]
+[2026-08-12 20:25:37 #74 INFO] read_source_model  85% [80 submitted, 25 queued]
+[2026-08-12 20:25:38 #74 INFO] read_source_model  86% [86 submitted, 19 queued]
+[2026-08-12 20:25:40 #74 INFO] read_source_model  87% [93 submitted, 12 queued]
+[2026-08-12 20:25:41 #74 INFO] read_source_model  88% [100 submitted, 5 queued]
+[2026-08-12 20:25:42 #74 INFO] read_source_model  89% [105 submitted, 0 queued]
+[2026-08-12 20:25:43 #74 INFO] read_source_model  90% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  91% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  92% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  93% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  94% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  95% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  96% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  97% [105 submitted, 0 queued]
+[2026-08-12 20:25:47 #74 INFO] read_source_model  98% [105 submitted, 0 queued]
+[2026-08-12 20:26:11 #74 INFO] read_source_model  99% [105 submitted, 0 queued]
+[2026-08-12 20:26:11 #74 INFO] read_source_model 100% [105 submitted, 0 queued]
+[2026-08-12 20:26:11 #74 INFO] Mean time per core=22s, std=9.8s, min=17s, max=44s
+[2026-08-12 20:26:11 #74 INFO] Received 105 * 1.48 MB in 56 seconds [unpik=9.63s] from read_source_model
+{'H:\\2025 - City Resilience Assessment\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\unit_m10\\bg_1_20.xml': '7.04 MB', 'H:\\2025 - City Resilience Assessment\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\unit_m8\\bg_1_20.xml': '7.04 MB', 'H:\\2025 - City Resilience Assessment\\CNCityRisk\\Data\\GEM-CHN-v2021.1.0\\ssm\\mfd_m10\\bg_1_20.xml': '7.04 MB'}
+[2026-08-12 20:26:18 #74 WARNING] Found different sources with same ID [bg_1_1, bg_1_10, bg_1_11, ..., bg_1_7, bg_1_8, bg_1_9]
+[2026-08-12 20:26:18 #74 INFO] Applying uncertainties
+[2026-08-12 20:26:49 #74 INFO] Rupture floating factor = 2.8640838611676362
+[2026-08-12 20:26:49 #74 INFO] Rupture spinning factor = 2.462941732825084
+[2026-08-12 20:26:49 #74 INFO] min_iml=[1.e-10]
+[2026-08-12 20:26:49 #74 INFO] Counting the ruptures in the CompositeSourceModel
+[2026-08-12 20:26:50 #74 WARNING] Sent 12 count_ruptures tasks, 0 B
+[2026-08-12 20:26:58 #74 INFO] Mean time per core=0s, std=0.1s, min=0s, max=0s
+[2026-08-12 20:26:58 #74 INFO] Received 56 * 16.14 B in 8 seconds [unpik=0.00s] from count_ruptures
+{'mps-01;3': '17 B', 'mps-18;3': '17 B', 'mps-01;2': '17 B'}
+[2026-08-12 20:27:06 #74 INFO] Building ruptures
+[2026-08-12 20:27:06 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39615 source(s), weight=9916844>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39615 source(s), weight=9916844>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39700 source(s), weight=9932546>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 1 source(s), weight=3995>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active-Stable Shallow Crust, 39700 source(s), weight=9932546>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24133 source(s), weight=9217140>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24133 source(s), weight=9217140>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24172 source(s), weight=9236796>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Active Shallow Crust, 11 source(s), weight=54252>
+[2026-08-12 20:27:07 #74 INFO] Produced 2 subgroup(s) of <SourceGroup Active Shallow Crust, 24172 source(s), weight=9236796>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Craton, 5959 source(s), weight=953424>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
+[2026-08-12 20:27:07 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Himalayan Thrust, 1 source(s), weight=234291>
+[2026-08-12 20:27:08 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
+[2026-08-12 20:27:09 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
+[2026-08-12 20:27:09 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
+[2026-08-12 20:27:13 #74 INFO] Produced 1 subgroup(s) of <SourceGroup Deep Crust 1, 13 source(s), weight=2099815>
+[2026-08-12 20:27:16 #74 WARNING] Sent 12 sample_ruptures tasks, 81.61 MB
+[2026-08-12 20:27:16 #74 INFO] sample_ruptures   7% [13 submitted, 23 queued]
+[2026-08-12 20:27:17 #74 INFO] sample_ruptures  14% [14 submitted, 22 queued]
+[2026-08-12 20:27:17 #74 INFO] sample_ruptures  20% [15 submitted, 21 queued]
+[2026-08-12 20:27:22 #74 INFO] sample_ruptures  25% [16 submitted, 20 queued]
+[2026-08-12 20:27:23 #74 INFO] sample_ruptures  29% [17 submitted, 19 queued]
+[2026-08-12 20:27:23 #74 INFO] sample_ruptures  33% [18 submitted, 18 queued]
+[2026-08-12 20:27:25 #74 INFO] sample_ruptures  36% [19 submitted, 17 queued]
+[2026-08-12 20:27:29 #74 INFO] sample_ruptures  40% [20 submitted, 16 queued]
+[2026-08-12 20:27:31 #74 INFO] sample_ruptures  42% [21 submitted, 15 queued]
+[2026-08-12 20:27:32 #74 INFO] sample_ruptures  45% [22 submitted, 14 queued]
+[2026-08-12 20:27:34 #74 INFO] sample_ruptures  47% [23 submitted, 13 queued]
+[2026-08-12 20:27:37 #74 INFO] sample_ruptures  50% [24 submitted, 12 queued]
+[2026-08-12 20:27:38 #74 INFO] sample_ruptures  52% [25 submitted, 11 queued]
+[2026-08-12 20:27:39 #74 INFO] sample_ruptures  53% [26 submitted, 10 queued]
+[2026-08-12 20:27:44 #74 INFO] sample_ruptures  55% [27 submitted, 9 queued]
+[2026-08-12 20:27:45 #74 INFO] sample_ruptures  57% [28 submitted, 8 queued]
+[2026-08-12 20:27:51 #74 INFO] sample_ruptures  58% [29 submitted, 7 queued]
+[2026-08-12 20:27:52 #74 INFO] sample_ruptures  60% [30 submitted, 6 queued]
+[2026-08-12 20:27:57 #74 INFO] sample_ruptures  61% [31 submitted, 5 queued]
+[2026-08-12 20:27:58 #74 INFO] sample_ruptures  62% [32 submitted, 4 queued]
+[2026-08-12 20:27:58 #74 INFO] sample_ruptures  63% [33 submitted, 3 queued]
+[2026-08-12 20:27:58 #74 INFO] sample_ruptures  64% [34 submitted, 2 queued]
+[2026-08-12 20:28:00 #74 INFO] sample_ruptures  65% [35 submitted, 1 queued]
+[2026-08-12 20:28:00 #74 INFO] sample_ruptures  66% [36 submitted, 0 queued]
+[2026-08-12 20:28:01 #74 INFO] sample_ruptures  69% [36 submitted, 0 queued]
+[2026-08-12 20:28:01 #74 INFO] sample_ruptures  72% [36 submitted, 0 queued]
+[2026-08-12 20:28:09 #74 INFO] sample_ruptures  75% [36 submitted, 0 queued]
+[2026-08-12 20:28:13 #74 INFO] sample_ruptures  77% [36 submitted, 0 queued]
+[2026-08-12 20:28:17 #74 INFO] sample_ruptures  80% [36 submitted, 0 queued]
+[2026-08-12 20:28:18 #74 INFO] sample_ruptures  83% [36 submitted, 0 queued]
+[2026-08-12 20:28:18 #74 INFO] sample_ruptures  86% [36 submitted, 0 queued]
+[2026-08-12 20:28:19 #74 INFO] sample_ruptures  88% [36 submitted, 0 queued]
+[2026-08-12 20:28:19 #74 INFO] sample_ruptures  91% [36 submitted, 0 queued]
+[2026-08-12 20:28:19 #74 INFO] sample_ruptures  94% [36 submitted, 0 queued]
+[2026-08-12 20:28:23 #74 INFO] sample_ruptures  97% [36 submitted, 0 queued]
+[2026-08-12 20:28:23 #74 INFO] sample_ruptures 100% [36 submitted, 0 queued]
+[2026-08-12 20:28:23 #74 INFO] Mean time per core=63s, std=1.9s, min=61s, max=66s
+[2026-08-12 20:28:23 #74 INFO] Received 152 * 8.28 KB in 69 seconds [unpik=0.01s] from sample_ruptures
+{'source_data': '1.17 MB', 'rup_array': '57.62 KB', 'eff_ruptures': '822 B'}
+[2026-08-12 20:28:23 #74 INFO] Generated 58/58 ruptures, stored in 69.57963371276855 seconds
+[2026-08-12 20:28:24 #74 INFO] There are 28 groups and 148 sources with len(trt_smrs)=1.00
+[2026-08-12 20:28:24 #74 WARNING] No sources for some TRTs: you should set
+discard_trts = Himalayan Thrust, Deep Crust 1, Active Shallow Crust, Craton
+in H:\2025 - City Resilience Assessment\CNCityRisk\Data\GEM-CHN-v2021.1.0\job.ini
+[2026-08-12 20:28:24 #74 INFO] Reordering the ruptures and storing the events
+[2026-08-12 20:28:24 #74 INFO] There are 59 events and 58 ruptures in 2_000 years (mean mag=5.51)
+[2026-08-12 20:28:24 #74 INFO] Reading 58 ruptures
+[2026-08-12 20:28:24 #74 INFO] Affected sites ~67 per rupture, max=279
+[2026-08-12 20:28:24 #74 INFO] maxw = 6
+[2026-08-12 20:28:24 #74 WARNING] Sent 15 event_based tasks, 1.09 MB
+[2026-08-12 20:28:24 #74 INFO] event_based   6% [15 submitted, 0 queued]
+[2026-08-12 20:28:24 #74 INFO] event_based  13% [15 submitted, 0 queued]
+[2026-08-12 20:28:24 #74 INFO] event_based  20% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  26% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  33% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  40% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  46% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  53% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  60% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  66% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  73% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  80% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  86% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based  93% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] event_based 100% [15 submitted, 0 queued]
+[2026-08-12 20:28:25 #74 INFO] Mean time per core=0s, std=0.0s, min=0s, max=0s
+[2026-08-12 20:28:25 #74 INFO] Received 15 * 3.34 KB in 0 seconds [unpik=0.00s] from event_based
+{'gmfdata': '39.89 KB', 'times': '5.29 KB', 'sig_eps': '4.99 KB'}
+[2026-08-12 20:28:25 #74 INFO] Stored 28.92 KB of GMFs
+[2026-08-12 20:28:25 #74 INFO] Stored 56 relevant event IDs
+[2026-08-12 20:28:25 #74 INFO] Checking stored GMFs
+[2026-08-12 20:28:25 #74 INFO] No PGAs over 5 g found
+[2026-08-12 20:28:25 #74 INFO] Exposing the outputs to the database
+[2026-08-12 20:28:25 #74 INFO]   id | name
+ 217 | Annual Frequency of Events
+ 222 | Earthquake Ruptures
+ 218 | Events
+ 219 | Full Report
+ 220 | Ground Motion Fields
+ 221 | Realizations
+ 223 | Site Model
+[2026-08-12 20:28:25 #74 INFO] Stored 325.9 KB on C:\Users\youti\oqdata\calc_74.hdf5 in 200 seconds

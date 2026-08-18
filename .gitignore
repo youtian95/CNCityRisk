@@ -3,6 +3,7 @@ config.ini
 **/__pycache__
 dist/
 temp/
+tmp/
 论文/
 **/.env/
 **/.vscode/

@@ -1,3 +1,13 @@
+"""
+城市建筑基础数据准备模块。
+
+使用流程：按城市或经纬度范围读取建筑轮廓，计算层数、面积与位置，
+补充 POI、结构类型和使用类型，并保存区县级 Parquet 数据。
+
+输入：城市名称或空间范围、最小建筑面积及数据读写函数。
+输出：标准化的区县建筑 GeoDataFrame 文件及处理统计。
+"""
+
 import geopandas as gpd
 from pypinyin import lazy_pinyin
 import addressparser
@@ -211,18 +221,22 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
                 logger.debug(f'Filtering buildings with area greater than {MinBldArea} square meters')
                 old_count = len(district_gdf)
                 district_gdf = district_gdf[district_gdf['area'].astype(float) >= MinBldArea]
-                logger.debug(f'Filtered buildings count: {len(district_gdf)}/{old_count}')
-                
-                # Check if any buildings remain after filtering
-                if len(district_gdf) == 0:
+                filtered_count = len(district_gdf)
+                logger.debug(f'Filtered buildings count: {filtered_count}/{old_count}')
+
+                # 仅在确实删除建筑时写回，避免无变化数据覆盖原 Parquet。
+                if filtered_count == 0:
                     logger.warning(f'No buildings remain in district {districtname} after area filtering (min area: {MinBldArea} m²). Skipping')
                     empty_districts.append(districtname)
                     continue
-                    
-                if is_coordinate_mode:
-                    save_func(region_name, file_identifier, district_gdf)
+
+                if filtered_count < old_count:
+                    if is_coordinate_mode:
+                        save_func(region_name, file_identifier, district_gdf)
+                    else:
+                        save_func(city_name, file_identifier, district_gdf)
                 else:
-                    save_func(city_name, file_identifier, district_gdf)
+                    logger.debug(f'No buildings removed in district {districtname}; skipping Parquet rewrite')
 
         POI_available = False
         if 'POI' not in district_gdf.columns:

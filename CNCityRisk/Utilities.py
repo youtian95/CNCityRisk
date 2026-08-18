@@ -1,4 +1,15 @@
+"""
+城市建筑数据与地震风险分析通用工具模块。
+
+使用流程：由数据准备、结构分类、地震动模拟和地图打包模块调用，
+完成建筑数据读写、空间查询、类型转换及辅助计算。
+
+输入：城市或区县名称、建筑 GeoDataFrame、空间范围及配置参数。
+输出：标准化建筑数据、空间查询结果和分析辅助文件。
+"""
+
 from pathlib import Path
+import tempfile
 import math
 import geopandas as gpd
 from shapely.geometry import box, Polygon, Point, MultiPolygon
@@ -333,11 +344,10 @@ def get_rows_CityBldData(CityName) -> int:
     CityDir = BLD_DATA_PATH / CityName
     if not CityDir.exists():
         raise ValueError(f"City {CityName} data not found.")
-    DistrictNames = [f.stem for f in CityDir.glob('*.csv')]
+    DistrictNames = [f.stem for f in CityDir.glob('*.parquet')]
 
     for DistrictName in DistrictNames:
-        row_district_gdf = Get_rows_DistrictBldGDF(CityName, DistrictName)
-        row_count += len(row_district_gdf)
+        row_count += Get_rows_DistrictBldGDF(CityName, DistrictName)
 
     return row_count
 
@@ -373,7 +383,7 @@ def get_CityBldData(CityName, columns = None) -> gpd.GeoDataFrame:
     CityDir = BLD_DATA_PATH / CityName
     if not CityDir.exists():
         raise ValueError(f"City {CityName} data not found.")
-    DistrictNames = [f.stem for f in CityDir.glob('*.csv')]
+    DistrictNames = [f.stem for f in CityDir.glob('*.parquet')]
 
     for DistrictName in DistrictNames:
         district_gdf = get_DistrictBldData(CityName, DistrictName, columns)
@@ -664,7 +674,7 @@ def DeriveBldOccupancyType(Bld_gdf: gpd.GeoDataFrame):
 
 def Get_rows_DistrictBldGDF(CityName: str, DistrictName: str) -> int:
     '''
-    Read the building data of a district from a csv file in the BLD_DATA_PATH.
+    读取 BLD_DATA_PATH 中某区县 Parquet 建筑文件的行数。
     Parameters:
         CityName (str): Name of the city.
         DistrictName (str): Name of the district.
@@ -672,11 +682,10 @@ def Get_rows_DistrictBldGDF(CityName: str, DistrictName: str) -> int:
         row_count (int): Number of rows in the building data of the district.
     '''
     CityDir = BLD_DATA_PATH / CityName
-    DistrictFile = CityDir / f'{DistrictName}.csv'
+    DistrictFile = CityDir / f'{DistrictName}.parquet'
     if not DistrictFile.exists():
         raise FileNotFoundError(f"District file {DistrictFile} not found.")
-    row_count = sum(1 for _ in pd.read_csv(DistrictFile, chunksize=10000))
-    return row_count
+    return len(pd.read_parquet(DistrictFile, columns=['area']))
 
 def ReadDistrictBldGDF_CSV(CityName: str, DistrictName: str) -> gpd.GeoDataFrame:
     '''
@@ -796,7 +805,20 @@ def SaveDistrictBldGDF(LocationName: str = None, DistrictName: str = None, Bld_g
     # Cast columns to predefined types
     gdf = _cast_BldGDF_column_types(gdf)
 
-    gdf.to_parquet(file_path, compression='snappy', index=True)
+    # 先写入同目录临时文件；写入失败时保留原文件，避免原路径被截断后丢失。
+    with tempfile.NamedTemporaryFile(
+        prefix=f'.{file_path.stem}.',
+        suffix='.tmp.parquet',
+        dir=file_path.parent,
+        delete=False,
+    ) as temp_file:
+        temp_path = Path(temp_file.name)
+    try:
+        gdf.to_parquet(temp_path, compression='snappy', index=True)
+        temp_path.replace(file_path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
         
 class SearchVs30:

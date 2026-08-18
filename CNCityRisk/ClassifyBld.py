@@ -1,5 +1,16 @@
+"""
+城市建筑代表类型分类模块。
+
+使用流程：读取城市各区县的 Parquet 建筑数据，按结构、层数、面积、
+抗震设计水平和场地类别分组，并写回代表建筑编号。
+
+输入：城市名称、分类标签、面积分组步长及代表建筑结果目录。
+输出：区县建筑与代表建筑的映射，以及代表建筑属性表。
+"""
+
 import pandas as pd
 from pathlib import Path
+import tempfile
 import numpy as np
 from tqdm import tqdm
 import time
@@ -64,7 +75,7 @@ def BldClassify(CityName: str=None, min_lon=None, max_lon=None, min_lat=None, ma
 
     # existing district file names
     RegionBldDir = Utilities.BLD_DATA_PATH / region_name
-    DistrictNames = [file.stem for file in RegionBldDir.glob('*.csv')]
+    DistrictNames = [file.stem for file in RegionBldDir.glob('*.parquet')]
 
     if not RegionBldDir.exists():
         logger.error(f'{RegionBldDir} does not exist. Please run prepare_building_data first.')
@@ -122,14 +133,19 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     # create a directory to save the representative buildings
     SaveDir.mkdir(parents=True, exist_ok=True)
 
-    # use python library, BldCluster, to classify buildings
-    BldDirtFile = Utilities.BLD_DATA_PATH / CityName / f'{DistrictName}.csv'
-    obj = BldCluster.BldCluster(BldDirtFile)
-    all_columns = Bld_gdf.columns.tolist()
-    IgnoredLabels = [col for col in all_columns if col not in TargetLabels]
-    obj.ClassifyBld(IgnoredLabels=IgnoredLabels, **IncrLabels)
-    Bld2ReprBld = obj.Bld2ReprBld
-    ReprBld = obj.ReprBld
+    # BldCluster 目前只接受 CSV 路径，因此使用临时 CSV 兼容 Parquet 主数据。
+    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as temp_file:
+        temp_csv_path = Path(temp_file.name)
+    try:
+        Bld_gdf.to_csv(temp_csv_path, index=False)
+        obj = BldCluster.BldCluster(temp_csv_path)
+        all_columns = Bld_gdf.columns.tolist()
+        IgnoredLabels = [col for col in all_columns if col not in TargetLabels]
+        obj.ClassifyBld(IgnoredLabels=IgnoredLabels, **IncrLabels)
+        Bld2ReprBld = obj.Bld2ReprBld
+        ReprBld = obj.ReprBld
+    finally:
+        temp_csv_path.unlink(missing_ok=True)
 
     # Use the function to align datatypes
     ReprBld = _align_dataframe_dtypes(
@@ -172,9 +188,19 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
         Bld2ReprBld['Representative Buildings index'] = Bld2ReprBld['Representative Buildings index'].apply(find_new_id)
 
     # assign the representative building to the BldDirtFile
-    Bld_df = pd.read_csv(BldDirtFile)
+    Bld_df = Bld_gdf.copy()
     Bld2ReprBld = dict(zip(Bld2ReprBld['Original Buildings index'].to_list(), Bld2ReprBld['Representative Buildings index'].to_list()))
-    Bld_df[ReprColName] = Bld_df.index.map(Bld2ReprBld)
+
+    # BldCluster 会把临时 CSV 重编号为 0...N-1；面积筛选后的 Parquet 索引可能不连续，
+    # 因此必须按当前行位置写回映射，不能使用原 Parquet 索引直接查找。
+    row_positions = pd.Series(np.arange(len(Bld_df)), index=Bld_df.index)
+    mapped_repr_ids = row_positions.map(Bld2ReprBld)
+    if mapped_repr_ids.isna().any():
+        missing_count = int(mapped_repr_ids.isna().sum())
+        raise ValueError(
+            f'{CityName}-{DistrictName} 有 {missing_count} 栋建筑未匹配到 {ReprColName}，停止写入。'
+        )
+    Bld_df[ReprColName] = mapped_repr_ids.astype(int)
 
     # save the representative building and the mapping
     ReprBld.to_csv(SaveDir / REPR_BLD_FILE, index=True)

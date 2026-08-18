@@ -1,9 +1,29 @@
-'''
-Regional seismic risk assessment of buildings of major cities in China
+"""
+中国主要城市建筑区域地震风险评估主程序。
 
-Author: Tian You 
-Date: 2024-09-01
-'''
+使用流程：设置城市名称后，依次准备建筑数据、补充增量代表建筑分析、生成地震事件与地震动场，并计算区域损失、年化风险和地图数据。
+
+输入：城市名称及项目配置文件中的分析参数。
+输出：建筑、震源、地震动、区域损失、年化风险和网页地图结果。
+
+当前标准流程的重复运行策略：
+
+1. 按需更新或增量计算
+   - 建筑准备：复用已有区县数据，仅在面积筛选删除建筑或缺少属性时写回。
+   - 抗震设计水平：三列结果均已存在时跳过，否则补充后写回。
+   - 建筑分类：重新计算当前区县映射；沿用已有代表建筑编号，只追加新类型。
+   - 代表建筑 IDA：默认 ``StartOver=False``，跳过已有结果，只计算新增代表建筑。
+   - 代表建筑损失：默认 ``StartOver=False``，跳过已有结果，只计算新增代表建筑。
+
+2. 每次强制重算
+   - 城市 EQsources：初始化时清空该城市旧震源目录，然后重新运行 OpenQuake。
+   - 城市地震动：使用 ``overwrite=True``，按新震源覆盖旧地震动并重建合并矩阵。
+   - 三类区域损失、年化风险、地震动地图、损失地图和损失统计：全部重新生成。
+   - 网页静态地图数据：使用 ``Overwrite=True`` 覆盖旧打包结果。
+
+3. 默认不运行
+   - 所有位于 ``if 0`` 分支中的诊断图和单事件示例。
+"""
 
 from CNCityRisk import plot_city
 from CNCityRisk import PrepareBldData
@@ -36,7 +56,7 @@ def reproduce_wenchuan2008_event():
     Reproduce the building losses of the 2008 Wenchuan earthquake event
     '''
 
-    # Prepare building data, including structural type, occupancy type...   
+    # Prepare building data, including structural type, occupancy type...
     lat_min, lat_max = 30.7678, 32.7578
     lon_min, lon_max = 102.8883, 105.7345
 
@@ -76,7 +96,7 @@ def reproduce_wenchuan2008_event():
     if 0:
         Bld_gdf = Utilities.get_RegionBldData(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max)
         region_name, _ = Utilities.generate_region_name(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
-        RegionalLossSim.simulate_regional_losses(CityName=region_name, Bld_gdf=Bld_gdf, Event=event, losstype='DS_Struct')
+        RegionalLossSim.simulate_regional_losses(CityNameorRegionName=region_name, Bld_gdf=Bld_gdf, Event=event, losstype='DS_Struct')
 
     # results\Maps\CollapseRateContours: collapse rate contour plot
     if 1:
@@ -86,15 +106,18 @@ def reproduce_wenchuan2008_event():
 
 def analyze_1_city(CityName):
 
-    # Prepare building data, including structural type, occupancy type...    
-    if 0:
+    # 三类城市损失结果需要同步重算并生成地图。
+    loss_types = ('DS_Struct', 'RepairCost_Total', 'RepairTime')
+
+    # Prepare building data, including structural type, occupancy type...
+    if 1:
         PrepareBldData.prepare_building_data(CityName, MinBldArea=50)
-    if 0:        
+    if 1:
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
-    if 0:
+    if 1:
         # classify per structural type
         ClassifyBld.BldClassify(CityName)
-    if 0:
+    if 1:
         # classify per PSPA
         ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
 
@@ -105,7 +128,7 @@ def analyze_1_city(CityName):
         plot_city.plot_histogram_bld(CityName = CityName, DistrictName='包河区', prop = 'story')
 
     # IDA analysis for individual representative buildings
-    if 0:
+    if 1:
         IDA_ReprBld.IDA_analysis(NumPool=6)
 
     # Figures: plot IDA results for one buiding
@@ -115,11 +138,11 @@ def analyze_1_city(CityName):
         IDA.plot_IDA_results(IDA_results, Stat=True)
 
     # Seismic loss simulation for individual representative buildings
-    if 0:
-        BldPSPA_ReprBld.LossAssess(StartOver=True)
+    if 1:
+        BldPSPA_ReprBld.LossAssess()
 
     # Earthquake events generation
-    if 0:
+    if 1:
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
     # Figures: plot earthquake events
@@ -127,43 +150,56 @@ def analyze_1_city(CityName):
         plot_earthquake_events_folium(CityName)
         
     # IM field simulation
-    if 0:
-        IMSim.CityBldIMSimFromEvents(CityName)
+    if 1:
+        # 震源重新生成后必须覆盖旧地震动，避免复用旧震源目录中的结果。
+        IMSim.CityBldIMSimFromEvents(CityName, overwrite=True)
     if 0:
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
     # Regional seismic loss simulation
-    if 0:
+    if 1:
         Bld_gdf = Utilities.get_CityBldData(CityName)
-        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='DS_Struct')
-        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairCost_Total')
-        RegionalLossSim.simulate_regional_losses(CityName=CityName, Bld_gdf=Bld_gdf, losstype='RepairTime')
+        for loss_type in loss_types:
+            RegionalLossSim.simulate_regional_losses(
+                CityNameorRegionName=CityName,
+                Bld_gdf=Bld_gdf,
+                losstype=loss_type,
+            )
 
     # results\AnnualizedRisk: annualized loss calculation
-    if 0:
+    if 1:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
     # results\Maps\IMmap: Create maps for displaying IM fields
-    if 0:
+    if 1:
         CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
     # results\Maps\mbtiles: Create maps for displaying building losses
-    if 0:
-        CreateRegionalMaps.create_mbtiles_city_regional_losses(CityName, LossType='DS_Struct', Overwrite=True)
+    if 1:
+        for loss_type in loss_types:
+            CreateRegionalMaps.create_mbtiles_city_regional_losses(
+                CityName,
+                LossType=loss_type,
+                Overwrite=True,
+            )
 
     # results\Maps\RegionalLossStatistics: Create statistics for each event
-    if 0:
-        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='DS_Struct')
-    if 0:
-        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairCost_Total')
-    if 0:
-        RegionalLossSim.create_statistics_regional_losses(CityName, OutputDir = CreateRegionalMaps.RESULTDIR, LossType='RepairTime')
+    if 1:
+        for loss_type in loss_types:
+            RegionalLossSim.create_statistics_regional_losses(
+                CityName,
+                OutputDir=CreateRegionalMaps.RESULTDIR,
+                LossType=loss_type,
+            )
 
-if __name__ == '__main__':    
+if __name__ == '__main__':
 
-    # analyze_1_city('武汉')
-    # analyze_1_city('合肥')
-    # analyze_1_city('重庆')
+    CityName = '重庆'
 
-    Utilities.package_web_static_map_data(CityName='重庆', WebStaticMapsDir=r'H:\2025 - City Resilience Assessment\temp')
+    analyze_1_city(CityName)
 
-    # reproduce_wenchuan2008_event()
+    Utilities.package_web_static_map_data(
+        CityName=CityName,
+        WebStaticMapsDir=str(Path(r'H:\2025 - City Resilience Assessment\tmp') / CityName),
+        LossTypes=['DS_Struct', 'RepairCost_Total', 'RepairTime'],
+        Overwrite=True,
+    )
