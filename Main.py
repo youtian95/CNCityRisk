@@ -6,6 +6,12 @@
 输入：城市名称及项目配置文件中的分析参数。
 输出：建筑、震源、地震动、区域损失、年化风险和网页地图结果。
 
+流程切换方法：
+    标准流程由文件顶部的 WORKFLOW_STANDARD 开关表记录，其中全部步骤为 True。
+    需要运行不同流程时，复制一份预设并把不需要重跑的步骤改为 False，
+    然后在 __main__ 中把 workflow 指向该预设。``if 0`` 分支中的诊断图和
+    单事件示例不属于任何工作流，需要时手动打开。
+
 当前标准流程的重复运行策略：
 
 1. 按需更新或增量计算
@@ -50,6 +56,43 @@ import time
 
 # Get main program logger
 logger = get_logger('Main')
+
+# ==================== 工作流配置 ====================
+# 标准流程记录在 WORKFLOW_STANDARD 中（全部步骤为 True）。
+# 需要运行不同流程时，复制一份预设并把不需要重跑的步骤改为 False，
+# 然后在 __main__ 中把 workflow 指向该预设。各步骤的重算/增量语义见文件头注释。
+
+WORKFLOW_STANDARD = dict(
+    prepare_buildings=True,   # 建筑数据准备（增量更新）
+    design_level=True,        # 抗震设计水平估计（增量补充）
+    classify_struct=True,     # 按结构类型分类（重算区县映射）
+    classify_pspa=True,       # 按 PSPA 分类（重算区县映射）
+    ida=True,                 # 代表建筑 IDA 分析（增量）
+    loss_repr=True,           # 代表建筑损失模拟（增量）
+    eqsources=True,           # 城市震源生成（强制重算）
+    im_sim=True,              # 城市地震动模拟（强制覆盖）
+    regional_loss=True,       # 区域损失模拟（重算）
+    annualized_risk=True,     # 年化风险计算（重算）
+    maps=True,                # IM/损失地图与损失统计（重算）
+    package_web=True,         # 打包网页静态地图数据（覆盖）
+)
+
+# 变体示例：只重算区域损失、年化风险和地图，
+# 用于仅修改损失后处理逻辑、上游结果仍然有效的情况。
+WORKFLOW_RERUN_LOSS = dict(
+    prepare_buildings=False,
+    design_level=False,
+    classify_struct=False,
+    classify_pspa=False,
+    ida=False,
+    loss_repr=False,
+    eqsources=False,
+    im_sim=False,
+    regional_loss=True,
+    annualized_risk=True,
+    maps=True,
+    package_web=True      
+)
 
 def reproduce_wenchuan2008_event():
     '''
@@ -104,60 +147,67 @@ def reproduce_wenchuan2008_event():
         CreateRegionalMaps.plot_collapse_rate_contour(CityNameorRegionName=region_name, event=event)
 
 
-def analyze_1_city(CityName):
+def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
+    """
+    按工作流开关表运行单个城市的计算流程。
+
+    Parameters:
+        CityName (str): 城市名称。
+        wf (dict): 工作流开关表，键与 WORKFLOW_STANDARD 相同；缺省为标准流程。
+    """
 
     # 三类城市损失结果需要同步重算并生成地图。
     loss_types = ('DS_Struct', 'RepairCost_Total', 'RepairTime')
 
-    # Prepare building data, including structural type, occupancy type...
-    if 1:
+    # 建筑数据准备，包括结构类型、使用类型等
+    if wf['prepare_buildings']:
         PrepareBldData.prepare_building_data(CityName, MinBldArea=50)
-    if 1:
+    if wf['design_level']:
         PrepareBldData.EstimateSeismicDesignLevel(CityName)
-    if 1:
-        # classify per structural type
+    if wf['classify_struct']:
+        # 按结构类型分类
         ClassifyBld.BldClassify(CityName)
-    if 1:
-        # classify per PSPA
+    if wf['classify_pspa']:
+        # 按 PSPA 分类
         ClassifyBld.BldClassify(CityName, TargetLabels=ClassifyBld.PSPA_CLASS_LABELS, SaveDir=ClassifyBld.REPR_PSPA_BLD_DIR, ReprColName='ReprBldID_PSPA')
 
-    # Figures: plot city buildings
+    # 诊断图：城市建筑可视化（不属于标准流程）
     if 0:
         plot_city.plot_BldFootprints_properties(CityName = CityName, DistrictName='包河区', prop = 'structure')
     if 0:
         plot_city.plot_histogram_bld(CityName = CityName, DistrictName='包河区', prop = 'story')
 
-    # IDA analysis for individual representative buildings
-    if 1:
+    # 代表建筑 IDA 分析
+    if wf['ida']:
         IDA_ReprBld.IDA_analysis(NumPool=6)
 
-    # Figures: plot IDA results for one buiding
+    # 诊断图：单栋代表建筑 IDA 结果（不属于标准流程）
     if 0:
         ReprBld = 20000
         IDA_results = (IDA_ReprBld.OutputDir / ('IDA_result_ReprBldID_'+str(ReprBld)+'.csv')).as_posix()
         IDA.plot_IDA_results(IDA_results, Stat=True)
 
-    # Seismic loss simulation for individual representative buildings
-    if 1:
+    # 代表建筑地震损失模拟
+    if wf['loss_repr']:
         BldPSPA_ReprBld.LossAssess()
 
-    # Earthquake events generation
-    if 1:
+    # 城市震源生成
+    if wf['eqsources']:
         eqs = EQsource(CityName = CityName)
         eqs.generate_earthquake_events(CityName)
-    # Figures: plot earthquake events
+    # 诊断图：震源分布（不属于标准流程）
     if 0:
         plot_earthquake_events_folium(CityName)
-        
-    # IM field simulation
-    if 1:
+
+    # 城市地震动场模拟
+    if wf['im_sim']:
         # 震源重新生成后必须覆盖旧地震动，避免复用旧震源目录中的结果。
         IMSim.CityBldIMSimFromEvents(CityName, overwrite=True)
     if 0:
         IMSim.Plot_IM_Spatial_City(CityName, i_rup=13, median=True)
 
-    # Regional seismic loss simulation
-    if 1:
+    # 区域地震损失模拟
+    if wf['regional_loss']:
         Bld_gdf = Utilities.get_CityBldData(CityName)
         for loss_type in loss_types:
             RegionalLossSim.simulate_regional_losses(
@@ -166,24 +216,22 @@ def analyze_1_city(CityName):
                 losstype=loss_type,
             )
 
-    # results\AnnualizedRisk: annualized loss calculation
-    if 1:
+    # results\AnnualizedRisk: 年化风险计算
+    if wf['annualized_risk']:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
-    # results\Maps\IMmap: Create maps for displaying IM fields
-    if 1:
+    # results\Maps: IM 地图、损失地图与损失统计
+    if wf['maps']:
+        # IM 场地图数据
         CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
-    # results\Maps\mbtiles: Create maps for displaying building losses
-    if 1:
+        # 建筑损失 MBTiles 地图
         for loss_type in loss_types:
             CreateRegionalMaps.create_mbtiles_city_regional_losses(
                 CityName,
                 LossType=loss_type,
                 Overwrite=True,
             )
-
-    # results\Maps\RegionalLossStatistics: Create statistics for each event
-    if 1:
+        # 各事件损失统计
         for loss_type in loss_types:
             RegionalLossSim.create_statistics_regional_losses(
                 CityName,
@@ -195,11 +243,17 @@ if __name__ == '__main__':
 
     CityName = '重庆'
 
-    analyze_1_city(CityName)
+    # 选择工作流：标准流程为 WORKFLOW_STANDARD，
+    # 需要运行不同流程时，切换为文件顶部定义的其他预设（如 WORKFLOW_RERUN_LOSS）。
+    workflow = WORKFLOW_STANDARD
 
-    Utilities.package_web_static_map_data(
-        CityName=CityName,
-        WebStaticMapsDir=str(Path(r'H:\2025 - City Resilience Assessment\tmp') / CityName),
-        LossTypes=['DS_Struct', 'RepairCost_Total', 'RepairTime'],
-        Overwrite=True,
-    )
+    analyze_1_city(CityName, wf=workflow)
+
+    # 打包网页静态地图数据
+    if workflow['package_web']:
+        Utilities.package_web_static_map_data(
+            CityName=CityName,
+            WebStaticMapsDir=str(Path(r'H:\2025 - City Resilience Assessment\tmp') / CityName),
+            LossTypes=['DS_Struct', 'RepairCost_Total', 'RepairTime'],
+            Overwrite=True,
+        )
