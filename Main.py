@@ -241,7 +241,7 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
 
 if __name__ == '__main__':
 
-    CityName = '重庆'
+    CityName = '南京'
 
     # 选择工作流：标准流程为 WORKFLOW_STANDARD，
     # 需要运行不同流程时，切换为文件顶部定义的其他预设（如 WORKFLOW_RERUN_LOSS）。

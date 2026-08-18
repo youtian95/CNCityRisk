@@ -1,5 +1,11 @@
 # 更新日志 (Changelog)
 
+## [0.3.9] - 2026-8-18
+
+### 修复
+
+- 修复`SearchBldPOI_Local`经纬度的读取
+
 ## [0.3.8] - 2026-8-18
 
 - 打包标准工作流程`WORKFLOW_STANDARD`

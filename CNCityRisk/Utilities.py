@@ -532,10 +532,13 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['wgs84lon'], df['wgs84lat']))
         elif 'WGS84_经度' in df.columns and 'WGS84_纬度' in df.columns:
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['WGS84_经度'], df['WGS84_纬度']))
+        elif 'WGS84_Lng' in df.columns and 'WGS84_Lat' in df.columns:
+            # 个别 POI 文件（如南京的公交设施服务）使用英文坐标列名，按 WGS84_经度/纬度 同等处理
+            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['WGS84_Lng'], df['WGS84_Lat']))
         elif '经度' in df.columns and '纬度' in df.columns:
             gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['经度'], df['纬度']))
         else:
-            raise Exception(f"Columns 'wgs84lon' and 'wgs84lat' or 'WGS84_经度' and 'WGS84_纬度' not found in {POI_file}.")
+            raise Exception(f"Coordinate columns (wgs84lon/wgs84lat, WGS84_经度/WGS84_纬度, WGS84_Lng/WGS84_Lat, or 经度/纬度) not found in {POI_file}.")
         retained_keys = ['大类', '中类', '小类', 'geometry']
         gdf = gdf[retained_keys]
         POI_gdf = pd.concat([POI_gdf, gdf], ignore_index=True)
