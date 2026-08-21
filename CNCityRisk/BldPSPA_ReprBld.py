@@ -103,7 +103,8 @@ def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Pat
                         # calculate probability of each damage state
                         DS_prob = BldLoss_IM.value_counts(normalize=True)
                         for DS, prob in DS_prob.items():
-                            grp_im_loss.create_dataset(DS, data=prob, dtype=np.float32, compression="gzip", compression_opts=6)
+                            # 损伤状态概率是标量；HDF5 标量数据集不支持分块和压缩。
+                            grp_im_loss.create_dataset(DS, data=np.float32(prob), dtype=np.float32)
                     else:
                         # save CDF of the loss
                         quantiles = np.linspace(0, 1, 101)
