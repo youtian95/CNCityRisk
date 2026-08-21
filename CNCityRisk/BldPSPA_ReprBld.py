@@ -425,7 +425,10 @@ def SimLossRandomly(ReprPSPAID: int, IM: list[float], losstype: str, Nsim: list[
         logger.debug(f"Processing damage state type: {losstype}")
         ds_prob = GetProbDS(ReprPSPAID, IM, losstype)
         for i, im in enumerate(IM):
-            sim_loss_im = np.random.choice(DS_types, size=Nsim[i], p=[ds_prob[i][key] for key in DS_types]).tolist()
+            # 消除 float32 存储和插值产生的概率和舍入误差。
+            probabilities = np.array([ds_prob[i][key] for key in DS_types], dtype=float)
+            probabilities /= probabilities.sum()
+            sim_loss_im = np.random.choice(DS_types, size=Nsim[i], p=probabilities).tolist()
             sim_loss.append(sim_loss_im)
 
     elif losstype in LossTypes2:
