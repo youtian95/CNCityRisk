@@ -74,6 +74,7 @@ WORKFLOW_STANDARD = dict(
     regional_loss=True,       # 区域损失模拟（重算）
     annualized_risk=True,     # 年化风险计算（重算）
     maps=True,                # IM/损失地图与损失统计（重算）
+    cleanup_im_after_maps=True, # 地图完成后删除已被最终结果替代的逐震源IM文件
     package_web=True,         # 打包网页静态地图数据（覆盖）
 )
 
@@ -91,6 +92,7 @@ WORKFLOW_RERUN_LOSS = dict(
     regional_loss=True,
     annualized_risk=True,
     maps=True,
+    cleanup_im_after_maps=False,
     package_web=True      
 )
 
@@ -222,8 +224,9 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
 
     # results\Maps: IM 地图、损失地图与损失统计
     if wf['maps']:
-        # IM 场地图数据
-        CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
+        # 本次生成了新的地震动时，同步更新IM场地图数据。
+        if wf['im_sim']:
+            CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
         # 建筑损失 MBTiles 地图
         for loss_type in loss_types:
             CreateRegionalMaps.create_mbtiles_city_regional_losses(
@@ -238,6 +241,10 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
                 OutputDir=CreateRegionalMaps.RESULTDIR,
                 LossType=loss_type,
             )
+
+        # 最终IM地图已生成，保留城市HDF5和震源映射，删除逐震源网格场。
+        if wf.get('cleanup_im_after_maps', False):
+            IMSim.cleanup_city_im_results(CityName, stage='after_maps')
 
 if __name__ == '__main__':
 

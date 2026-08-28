@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import math
 import subprocess
+import shutil
 from pathlib import Path
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator
@@ -34,6 +35,68 @@ IM_SIM_DIR = Path(__file__).parent / 'results/IMsim/'
 
 # Initialize logger for this module
 logger = Logger.get_logger('IMSim')
+
+
+def cleanup_rupture_after_merge(rupture_dir: Path) -> tuple[int, int]:
+    """清理单个震源在写入城市HDF5后不再使用的中间文件。
+
+    Parameters:
+        rupture_dir: Path - 单个震源的地震动结果目录。
+
+    Returns:
+        tuple[int, int] - 删除文件数和释放字节数。
+    """
+    patterns = ('IM_mat_Bld.txt', 'IM median plus Between-event residual with period*.txt', 'XY coord.txt')
+    files = [path for pattern in patterns for path in rupture_dir.glob(pattern)]
+    released_bytes = sum(path.stat().st_size for path in files)
+    for path in files:
+        path.unlink()
+
+    # 该文件仅用于判断模拟是否完成，内容没有下游读取，保留空文件作为完成标记。
+    marker = rupture_dir / 'IM sim.txt'
+    if marker.exists() and marker.stat().st_size:
+        released_bytes += marker.stat().st_size
+        marker.write_text('', encoding='utf-8')
+    return len(files), released_bytes
+
+
+def cleanup_city_im_results(CityName: str, OutputDir=IM_SIM_DIR, stage: str = 'after_merge', dry_run: bool = False) -> dict:
+    """清理城市IMsim中已被最终结果替代的逐震源文件。
+
+    Parameters:
+        CityName: str - 城市名称。
+        OutputDir: Path - IMsim总结果目录。
+        stage: str - after_merge仅清理合并后中间文件；after_maps在地图生成后清理全部逐震源目录。
+        dry_run: bool - 为True时只统计，不删除。
+
+    Returns:
+        dict - 清理阶段、文件数量和可释放字节数。
+    """
+    city_dir = Path(OutputDir) / CityName
+    rupture_dirs = list(city_dir.glob('rup_id_*'))
+    if stage == 'after_merge':
+        patterns = ('IM_mat_Bld.txt', 'IM median plus Between-event residual with period*.txt', 'XY coord.txt')
+        files = [path for rupture_dir in rupture_dirs for pattern in patterns for path in rupture_dir.glob(pattern)]
+        markers = [rupture_dir / 'IM sim.txt' for rupture_dir in rupture_dirs if (rupture_dir / 'IM sim.txt').exists() and (rupture_dir / 'IM sim.txt').stat().st_size]
+        released_bytes = sum(path.stat().st_size for path in [*files, *markers])
+        if not dry_run:
+            for path in files:
+                path.unlink()
+            for marker in markers:
+                marker.write_text('', encoding='utf-8')
+        file_count = len(files) + len(markers)
+    elif stage == 'after_maps':
+        files = [path for rupture_dir in rupture_dirs for path in rupture_dir.rglob('*') if path.is_file()]
+        released_bytes = sum(path.stat().st_size for path in files)
+        if not dry_run:
+            for rupture_dir in rupture_dirs:
+                shutil.rmtree(rupture_dir)
+        file_count = len(files)
+    else:
+        raise ValueError("stage必须是'after_merge'或'after_maps'")
+
+    logger.info("IMsim清理%s：城市=%s，阶段=%s，文件=%d，空间=%.2f GB", "预览" if dry_run else "完成", CityName, stage, file_count, released_bytes / 1024**3)
+    return {'city': CityName, 'stage': stage, 'files': file_count, 'bytes': released_bytes, 'dry_run': dry_run}
 
 class SpatialIM():
     '''
@@ -375,11 +438,10 @@ class SpatialIM():
         """
         logger.info("Starting interpolation of IM results from mesh to building locations")
 
-        # file path for results
-        if ResultFileName is not None:
-            filepath = self.OutputDir / ResultFileName
+        # 城市流程可直接把数组写入HDF5，不再落盘为体积很大的文本文件。
+        filepath = self.OutputDir / ResultFileName if ResultFileName is not None else None
 
-        if filepath.exists() and not overwrite:
+        if filepath is not None and filepath.exists() and not overwrite:
             logger.warning(f"IM_mat_Bld result file already exists: {filepath}. Use 'overwrite=True' to overwrite.")
             return None
 
@@ -390,9 +452,9 @@ class SpatialIM():
             logger.info("Using LinearNDInterpolator method with batching")
             IM_mat_Bld = self._InterpIMfromMesh(self.BldInfo, batch_size=batch_size)
 
-        # Save to file
-        np.savetxt(filepath, IM_mat_Bld, fmt='%.4f')
-        logger.info(f"Interpolated IM results saved to: {filepath}")
+        if filepath is not None:
+            np.savetxt(filepath, IM_mat_Bld, fmt='%.4f')
+            logger.info(f"Interpolated IM results saved to: {filepath}")
 
         logger.info(f"Interpolation completed for {IM_mat_Bld.shape[0]} buildings")
         return IM_mat_Bld
@@ -1150,9 +1212,19 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int 
         CityName: str - name of the city
         OutputDir: Path - output directory for results
         batch_size: int - number of buildings to process in each batch to avoid memory explosion
+        overwrite: bool - 是否覆盖已有的城市合并HDF5结果
     '''
     logger.info(f"Starting IM field simulation for city: {CityName} with batch size: {batch_size}")
     
+    city_dir = OutputDir / CityName
+    h5py_file = city_dir / IM_MAT_BLD_FILENAME
+    mapping_file = city_dir / RUPID_2_ISIM_FILENAME
+    if h5py_file.exists() and mapping_file.exists() and not overwrite:
+        logger.info(f"City IM results already exist for {CityName}; simulation skipped")
+        return
+    if overwrite and mapping_file.exists():
+        mapping_file.unlink()
+
     sim = SpatialIM()
     sim.PrepareCityBldData(CityName)
 
@@ -1169,25 +1241,39 @@ def CityBldIMSimFromEvents(CityName: str, OutputDir=IM_SIM_DIR, batch_size: int 
     rup_df = EQsources.ReadCityRuptures(CityName)
     logger.info(f"Processing {len(rup_df)} earthquake ruptures for {CityName}")
 
-    # Loop over each rupture
-    for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Simulating IM fields...'):
+    num_bld = len(sim.BldInfo)
+    total_sims = len(rup_df) * N_SIM_EACH_RUP
+    rupid_2_iSim = pd.DataFrame(index=rup_df['rup_id'], columns=['iSim'])
 
-        rup_id = row['rup_id']
-        logger.debug(f"Processing rupture {i+1}/{len(rup_df)}: {rup_id} (M={row['mag']})")
+    # 每个震源完成后直接写入合并HDF5并清理中间文件，避免10000年模拟产生数百GB文本文件。
+    with h5py.File(h5py_file, 'w') as hf:
+        dset = hf.create_dataset('IM_mat_Bld', shape=(num_bld, total_sims), dtype='float16', chunks=(min(1000, num_bld), min(N_SIM_EACH_RUP * 10, total_sims)), compression='gzip', compression_opts=3)
+        j_start = 0
+        for i, row in tqdm(rup_df.iterrows(), total=rup_df.shape[0], desc='Simulating IM fields...'):
+            rup_id = row['rup_id']
+            rupture_dir = city_dir / f'rup_id_{rup_id}'
+            logger.debug(f"Processing rupture {i+1}/{len(rup_df)}: {rup_id} (M={row['mag']})")
 
-        # Create a EQ source file
-        EQSourceFileName = OutputDir / f'{CityName}/rup_id_{rup_id}/EQSource.txt'
-        sim.CreateSourceFile_StrikeDip(M=row['mag'], N_sim=N_SIM_EACH_RUP, lon_Hypo=row['centroid_lon'], lat_Hypo=row['centroid_lat'], W_km=999, length_km=999, strike=row['strike'], dip=row['dip'], lambda_degree=row['rake'], Zhyp_km=row['centroid_depth'], Fhw=True, ifmedian=False, seed=0, region=3, nPCs=10, EQSourceFile=EQSourceFileName)
+            # 生成震源文件并模拟网格地震动。
+            EQSourceFileName = rupture_dir / 'EQSource.txt'
+            sim.CreateSourceFile_StrikeDip(M=row['mag'], N_sim=N_SIM_EACH_RUP, lon_Hypo=row['centroid_lon'], lat_Hypo=row['centroid_lat'], W_km=999, length_km=999, strike=row['strike'], dip=row['dip'], lambda_degree=row['rake'], Zhyp_km=row['centroid_depth'], Fhw=True, ifmedian=False, seed=0, region=3, nPCs=10, EQSourceFile=EQSourceFileName)
+            sim.SetMeshedSiteFile(SiteFile)
+            sim.IMFieldSim(rupture_dir, overwrite=overwrite)
 
-        sim.SetMeshedSiteFile(SiteFile)
+            # 直接写入最终HDF5，不再生成逐震源IM_mat_Bld.txt。
+            im_mat_bld = sim.InterpIMfromMeshForCity(ResultFileName=None, batch_size=batch_size, use_regular_grid=True, overwrite=overwrite)
+            dset[:, j_start:j_start + im_mat_bld.shape[1]] = im_mat_bld.astype(np.float16)
+            rupid_2_iSim.loc[rup_id, 'iSim'] = np.arange(j_start, j_start + im_mat_bld.shape[1])
+            j_start += im_mat_bld.shape[1]
+            del im_mat_bld
 
-        sim.IMFieldSim(OutputDir / f'{CityName}/rup_id_{rup_id}/', overwrite=overwrite)        
-        # interpolate
-        sim.InterpIMfromMeshForCity(batch_size=batch_size, use_regular_grid=True, overwrite=overwrite) # numpy array (i_bld, i_Sim)
+            # 删除后续地图和损失计算均不读取的可重复中间文件。
+            cleanup_rupture_after_merge(rupture_dir)
 
+    rupid_2_iSim.to_csv(mapping_file, index=True, header=True)
     logger.info(f"IM field simulation completed for {CityName}")
-
-    _MergeIMMatBldFiles(CityName, OutputDir=OutputDir)
+    logger.info(f"Successfully created merged IM file for {CityName}: {h5py_file}")
+    logger.info(f"Final dataset shape: ({num_bld}, {total_sims}), file size: {h5py_file.stat().st_size / 1024**2:.2f} MB")
 
 def _MergeIMMatBldFiles(CityName: str, OutputDir=IM_SIM_DIR, IM_mat_Bld_FileName=IM_MAT_BLD_FILENAME, rupid_2_iSim_FileName=RUPID_2_ISIM_FILENAME):
     """
