@@ -334,6 +334,15 @@ def _convert_CSV_to_Parquet(CityName: str):
 
     logger.info(f'Building data conversion for city {CityName} completed')
 
+# 现行行政区名称与 GB 50011-2010（2016 年版）附录 A 中名称的对应关系。
+DESIGN_CODE_LOCATION_ALIASES = {
+    ('成都', '双流区'): ('成都', '双流县'),
+    ('成都', '郫都区'): ('成都', '郫县'),
+    ('成都', '新津区'): ('成都', '新津县'),
+    ('成都', '简阳市'): ('资阳', '简阳市'),
+}
+
+
 def GetDesignLevelAndEQGroupbyLoc(CityName: str, DistrictName: str):
     '''
     Get the seismic design level of buildings based on city location.
@@ -345,12 +354,13 @@ def GetDesignLevelAndEQGroupbyLoc(CityName: str, DistrictName: str):
         EQGroup (str): Earthquake group of the city.
     '''
     GBApp_A = pd.read_csv(GB50011_A_FILE, na_values='-')
-    GBApp_A['City'] = GBApp_A['City'].ffill()    
-    Rows = GBApp_A[GBApp_A['City'].str.contains(CityName,na=False)]
+    GBApp_A['City'] = GBApp_A['City'].ffill()
+    LookupCityName, LookupDistrictName = DESIGN_CODE_LOCATION_ALIASES.get((CityName, DistrictName), (CityName, DistrictName))
+    Rows = GBApp_A[GBApp_A['City'].str.contains(LookupCityName, na=False, regex=False)]
     if Rows.empty:
-        raise Exception(f'City {CityName} not found in {GB50011_A_FILE}')
+        raise Exception(f'City {LookupCityName} not found in {GB50011_A_FILE}')
     else:
-        Row = Rows[Rows['District'].str.contains(DistrictName,na=False)]
+        Row = Rows[Rows['District'].str.contains(LookupDistrictName, na=False, regex=False)]
         if Row.empty:
             logger.warning(f'District {DistrictName} not found in {CityName} of {GB50011_A_FILE}, using the first district as default')
             Row = Rows.iloc[0:1]  # 使用该城市的第一个区域作为默认值
@@ -418,22 +428,27 @@ def _EstimateSeismicDesignLevel(CityName, DistrictName, overwrite=False):
     logger.debug(f'Reading building data for {CityName}-{DistrictName}')
     Bld_gdf: gpd.GeoDataFrame = ReadDistrictBldGDF(CityName, DistrictName)
 
-    # check if the 'SeismicDesignLevel', 'EQGroup', 'SiteClass' columns exist
-    if not overwrite and 'SeismicDesignLevel' in Bld_gdf.columns and 'EQGroup' in Bld_gdf.columns and 'SiteClass' in Bld_gdf.columns:
+    # 根据规范表取得当前行政区应使用的设防参数。
+    SeismicDesignLevel, EQGroup = GetDesignLevelAndEQGroupbyLoc(CityName, DistrictName)
+
+    # 已有参数与规范表一致时直接复用；行政区名称调整后则更新已有数据。
+    required_columns_exist = 'SeismicDesignLevel' in Bld_gdf.columns and 'EQGroup' in Bld_gdf.columns and 'SiteClass' in Bld_gdf.columns
+    design_level_matches = required_columns_exist and pd.to_numeric(Bld_gdf['SeismicDesignLevel'], errors='coerce').eq(float(SeismicDesignLevel)).all()
+    eq_group_matches = required_columns_exist and Bld_gdf['EQGroup'].astype(str).eq(str(EQGroup)).all()
+    if not overwrite and required_columns_exist and design_level_matches and eq_group_matches:
         logger.debug(f'Building data for {CityName}-{DistrictName} already contains seismic design level, earthquake group and site class. Skipping...')
         return
 
-    # get seismic design level and EQ group
-    logger.debug(f'Getting seismic design level and earthquake group')
-    SeismicDesignLevel, EQGroup = GetDesignLevelAndEQGroupbyLoc(CityName, DistrictName)
+    # 更新抗震设防烈度和设计地震分组。
     logger.debug(f'Seismic design level: {SeismicDesignLevel}, Earthquake group: {EQGroup}')
     Bld_gdf['SeismicDesignLevel'] = SeismicDesignLevel
     Bld_gdf['EQGroup'] = EQGroup
 
-    # get site class
-    logger.debug(f'Calculating site class')
-    SiteClass = GetSiteClassbyLoc(Bld_gdf['longitude'].to_list(), Bld_gdf['latitude'].to_list())
-    Bld_gdf['SiteClass'] = SiteClass
+    # 场地类别已经存在时无需因行政区名称调整而重新计算。
+    if overwrite or 'SiteClass' not in Bld_gdf.columns:
+        logger.debug(f'Calculating site class')
+        SiteClass = GetSiteClassbyLoc(Bld_gdf['longitude'].to_list(), Bld_gdf['latitude'].to_list())
+        Bld_gdf['SiteClass'] = SiteClass
     
     logger.debug(f'Saving building data for {CityName}-{DistrictName}')
     SaveDistrictBldGDF(CityName, DistrictName, Bld_gdf)

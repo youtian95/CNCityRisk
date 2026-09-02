@@ -1,12 +1,56 @@
+"""
+代表建筑增量动力分析模块。
+
+使用流程：读取代表建筑、跳过已有 IDA 结果、调用 MDOFModel 完成分析，并保存 CSV 或 HDF5 结果。
+输入：代表建筑文件、地震动元数据、相对强度列表和并行进程数。
+输出：各代表建筑的 IDA 结果及结构参数文件。
+"""
+
 from . import ClassifyBld
 from .Logger import get_logger
 logger = get_logger('IDA_ReprBld')
 from MDOFModel.Tool_IDA import main_IDA
+from MDOFModel import ReadRecord as MDOFReadRecord
 
 from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 import os
+
+
+_READ_RECORD_TXT_ORIGINAL = MDOFReadRecord.ReadRecord_TXT
+
+
+def _read_record_txt_cached(in_filename: str, out_filename: str):
+    """复用已转换的 OpenSees 地震波文件，避免并行分析时反复覆盖同一文件。
+
+    参数：
+        in_filename: 两列格式的原始地震波文件路径。
+        out_filename: OpenSees 使用的单列地震波文件路径。
+
+    返回：
+        tuple[float, int]: 地震波时间步长和数据点数。
+    """
+    if not Path(out_filename).exists():
+        return _READ_RECORD_TXT_ORIGINAL(in_filename, out_filename)
+
+    first_time = None
+    second_time = None
+    npts = 0
+    with open(in_filename, 'r') as input_file:
+        for line in input_file:
+            words = line.replace(',', ' ').split()
+            if len(words) == 2:
+                npts += 1
+                if first_time is None:
+                    first_time = float(words[0])
+                elif second_time is None:
+                    second_time = float(words[0])
+
+    return second_time - first_time, npts
+
+
+MDOFReadRecord.ReadRecord_TXT = _read_record_txt_cached
 
 # Parameters
 ReprBldFile = ClassifyBld.REPR_BLD_DIR / ClassifyBld.REPR_BLD_FILE
