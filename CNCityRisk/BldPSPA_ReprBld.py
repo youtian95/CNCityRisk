@@ -31,6 +31,7 @@ LossTypes2 = ['RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_Dri
 # 每个工作进程只缓存实际用到的IM节点和损失分位数，避免按建筑块重复读取完整代表建筑结果。
 _LOSS_QUANTILE_CACHE = {}
 _RANDOM_GENERATOR = np.random.default_rng()
+_LOSS_HDF5_HANDLE = None
 
 
 def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Path = None, N_Sim: int = 1000, BetaM: float = 0.0) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -484,15 +485,17 @@ def _get_loss_quantiles(ReprPSPAID: int, losstype: str) -> tuple[np.ndarray, np.
     Returns:
         tuple[np.ndarray, np.ndarray]: 递增的IM节点，以及对应的101个损失分位数组成的矩阵。
     """
+    global _LOSS_HDF5_HANDLE
     cache_key = (int(ReprPSPAID), losstype)
     if cache_key not in _LOSS_QUANTILE_CACHE:
-        with h5py.File(hdf5File, 'r') as f:
-            grp_bld = f[f'ReprBldID_{ReprPSPAID}']
-            im_group_names = sorted(grp_bld.keys(), key=lambda name: int(name.removeprefix('IM')))
-            # (n_IM,)
-            im_values = np.array([grp_bld[name].attrs['IM'] for name in im_group_names], dtype=np.float32)
-            # (n_IM, 101)
-            quantile_values = np.stack([grp_bld[name][losstype]['quantiles'][()] for name in im_group_names]).astype(np.float32)
+        if _LOSS_HDF5_HANDLE is None:
+            _LOSS_HDF5_HANDLE = h5py.File(hdf5File, 'r')
+        grp_bld = _LOSS_HDF5_HANDLE[f'ReprBldID_{ReprPSPAID}']
+        im_group_names = sorted(grp_bld.keys(), key=lambda name: int(name.removeprefix('IM')))
+        # (n_IM,)
+        im_values = np.array([grp_bld[name].attrs['IM'] for name in im_group_names], dtype=np.float32)
+        # (n_IM, 101)
+        quantile_values = np.stack([grp_bld[name][losstype]['quantiles'][()] for name in im_group_names]).astype(np.float32)
         _LOSS_QUANTILE_CACHE[cache_key] = (im_values, quantile_values)
     return _LOSS_QUANTILE_CACHE[cache_key]
 
