@@ -30,6 +30,7 @@ LossTypes2 = ['RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_Dri
 
 # 每个工作进程只缓存实际用到的IM节点和损失分位数，避免按建筑块重复读取完整代表建筑结果。
 _LOSS_QUANTILE_CACHE = {}
+_DS_PROBABILITY_CACHE = {}
 _RANDOM_GENERATOR = np.random.default_rng()
 _LOSS_HDF5_HANDLE = None
 
@@ -498,6 +499,73 @@ def _get_loss_quantiles(ReprPSPAID: int, losstype: str) -> tuple[np.ndarray, np.
         quantile_values = np.stack([grp_bld[name][losstype]['quantiles'][()] for name in im_group_names]).astype(np.float32)
         _LOSS_QUANTILE_CACHE[cache_key] = (im_values, quantile_values)
     return _LOSS_QUANTILE_CACHE[cache_key]
+
+
+def _get_damage_state_probabilities(ReprPSPAID: int, losstype: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    读取并缓存一个代表建筑在各IM节点上的损伤状态概率。
+
+    Parameters:
+        ReprPSPAID (int): PSPA代表建筑编号。
+        losstype (str): 离散损伤类型，必须属于LossTypes1。
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: 递增的IM节点，以及按DS_types顺序排列的损伤状态概率矩阵。
+    """
+    global _LOSS_HDF5_HANDLE
+    cache_key = (int(ReprPSPAID), losstype)
+    if cache_key not in _DS_PROBABILITY_CACHE:
+        if _LOSS_HDF5_HANDLE is None:
+            _LOSS_HDF5_HANDLE = h5py.File(hdf5File, 'r')
+        grp_bld = _LOSS_HDF5_HANDLE[f'ReprBldID_{ReprPSPAID}']
+        im_group_names = sorted(grp_bld.keys(), key=lambda name: int(name.removeprefix('IM')))
+        # 只读取损伤状态概率标量，不再把完整代表建筑结果加载到内存。
+        im_values = np.array([grp_bld[name].attrs['IM'] for name in im_group_names], dtype=np.float32)
+        probability_values = np.zeros((len(im_group_names), len(DS_types)), dtype=np.float32)
+        for i_im, name in enumerate(im_group_names):
+            grp_damage_state = grp_bld[name][losstype]
+            for i_ds, damage_state in enumerate(DS_types):
+                if damage_state in grp_damage_state:
+                    probability_values[i_im, i_ds] = grp_damage_state[damage_state][()]
+        _DS_PROBABILITY_CACHE[cache_key] = (im_values, probability_values)
+    return _DS_PROBABILITY_CACHE[cache_key]
+
+
+def SimDamageStateRandomlyArray(ReprPSPAID: int, IM: np.ndarray, losstype: str) -> np.ndarray:
+    """
+    使用NumPy批量模拟离散损伤状态，返回与DS_types对应的整数编码。
+
+    Parameters:
+        ReprPSPAID (int): PSPA代表建筑编号。
+        IM (np.ndarray): 任意形状的地震动强度数组。
+        losstype (str): 离散损伤类型，必须属于LossTypes1。
+
+    Returns:
+        np.ndarray: 与IM形状相同的int8损伤状态编码数组，取值为0至4。
+    """
+    if losstype not in LossTypes1:
+        raise ValueError(f"losstype must be one of {LossTypes1}.")
+
+    im_array = np.asarray(IM, dtype=np.float32)
+    original_shape = im_array.shape
+    im_flat = im_array.reshape(-1)
+    im_nodes, probability_values = _get_damage_state_probabilities(ReprPSPAID, losstype)
+
+    # 找到每个IM两侧的节点，超出范围时使用端点概率。
+    right_indices = np.searchsorted(im_nodes, im_flat)
+    right_indices = np.clip(right_indices, 1, len(im_nodes) - 1)
+    left_indices = right_indices - 1
+    interpolation_weights = (im_flat - im_nodes[left_indices]) / (im_nodes[right_indices] - im_nodes[left_indices])
+    interpolation_weights = np.clip(interpolation_weights, 0, 1)
+
+    # 一次完成概率插值、归一化和累计概率抽样，避免逐个IM构造字典并调用np.random.choice。
+    probabilities = probability_values[left_indices] + interpolation_weights[:, None] * (probability_values[right_indices] - probability_values[left_indices])
+    probabilities /= probabilities.sum(axis=1, keepdims=True)
+    cumulative_probabilities = np.cumsum(probabilities, axis=1)
+    cumulative_probabilities[:, -1] = 1.0
+    random_values = _RANDOM_GENERATOR.random(im_flat.size, dtype=np.float32)
+    damage_state_codes = np.sum(random_values[:, None] > cumulative_probabilities, axis=1).astype(np.int8)
+    return damage_state_codes.reshape(original_shape)
 
 
 def SimContinuousLossRandomlyArray(ReprPSPAID: int, IM: np.ndarray, losstype: str) -> np.ndarray:

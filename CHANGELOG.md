@@ -7,6 +7,7 @@
 - [x] 优化 `RegionalLossSim._simulate_regional_losses_multiprocess` 中连续损失的模拟
 - [x] 增加 `BldPSPA_ReprBld.SimContinuousLossRandomlyArray` 连续损失的模拟函数
 - [x] 优化 `RegionalLossSim._simulate_regional_losses_multiprocess`，直接生成按震源分组的损失结果
+- [x] 优化 `RegionalLossSim._simulate_regional_losses_multiprocess` 中损伤状态的模拟
 
 ## [0.3.15] - 2026-9-2
 

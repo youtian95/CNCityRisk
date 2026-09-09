@@ -1032,23 +1032,22 @@ def _process_BldLoss_chunk_worker(args):
     for ReprPSPAID in unique_ReprBldID_PSPA:
         relative_idx = np.flatnonzero(repr_ids == ReprPSPAID)
         N_sim_1_bld = IM_chunk.shape[1]
+        simulation_batch_size = 250
 
         if losstype in BldPSPA_ReprBld.LossTypes2:
             # 连续损失分批进行NumPy抽样，控制四个工作进程同时运行时的峰值内存。
             sim_loss = np.empty((len(relative_idx), N_sim_1_bld), dtype=np.float32)
-            simulation_batch_size = 250
             for batch_start in range(0, len(relative_idx), simulation_batch_size):
                 batch_end = min(batch_start + simulation_batch_size, len(relative_idx))
                 batch_positions = relative_idx[batch_start:batch_end]
                 sim_loss[batch_start:batch_end] = BldPSPA_ReprBld.SimContinuousLossRandomlyArray(ReprPSPAID, IM_chunk[batch_positions, :], losstype)
             chunk_loss_matrix[relative_idx, :] = sim_loss
         else:
-            # 离散损伤状态沿用原有抽样方法，确保类别概率处理不变。
-            IMlist = IM_chunk[relative_idx, :].reshape(-1).tolist()
-            sim_loss = BldPSPA_ReprBld.SimLossRandomly(ReprPSPAID=ReprPSPAID, IM=IMlist, losstype=losstype, Nsim=[1] * len(IMlist))
-            sim_loss = np.asarray(sim_loss).reshape(len(relative_idx), N_sim_1_bld)
-            categorical_loss = pd.Categorical(sim_loss.reshape(-1), categories=BldPSPA_ReprBld.DS_types)
-            chunk_loss_matrix[relative_idx, :] = categorical_loss.codes.reshape(len(relative_idx), N_sim_1_bld).astype(np.int8)
+            # 离散损伤状态同样分批进行NumPy抽样，直接生成整数编码，避免字符串和DataFrame转换。
+            for batch_start in range(0, len(relative_idx), simulation_batch_size):
+                batch_end = min(batch_start + simulation_batch_size, len(relative_idx))
+                batch_positions = relative_idx[batch_start:batch_end]
+                chunk_loss_matrix[batch_positions, :] = BldPSPA_ReprBld.SimDamageStateRandomlyArray(ReprPSPAID, IM_chunk[batch_positions, :], losstype)
     
     # HDF5不支持多个进程并发写入，锁内按震源写入连续的建筑行块。
     with lock:
