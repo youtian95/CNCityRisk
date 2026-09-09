@@ -1009,39 +1009,35 @@ def _process_BldLoss_chunk_worker(args):
     # 临时存储当前chunk的结果
     chunk_results = {}
     
-    # find unique ReprBldID_PSPA in the chunk
-    unique_ReprBldID_PSPA = bld_chunk['ReprBldID_PSPA'].unique()
-    
-    # iterate based on the ReprBldID_PSPA
+    # 使用NumPy索引一次完成代表建筑分组，避免在循环中反复筛选DataFrame。
+    repr_ids = bld_chunk['ReprBldID_PSPA'].to_numpy()
+    building_indices = bld_chunk.index.to_numpy()
+    unique_ReprBldID_PSPA = np.unique(repr_ids)
+
+    # 按代表建筑计算当前建筑块的损失。
     for ReprPSPAID in unique_ReprBldID_PSPA:
-        # find the index of the buildings with the same ReprBldID_PSPA.
-        idx = bld_chunk[bld_chunk['ReprBldID_PSPA'] == ReprPSPAID].index
-        N_same_ReprBldID_PSPA = len(idx)
+        relative_idx = np.flatnonzero(repr_ids == ReprPSPAID)
+        idx = building_indices[relative_idx]
         N_sim_1_bld = IM_chunk.shape[1]
-        
-        # get the IM list for this ReprBldID_PSPA
-        # 调整索引以匹配chunk内的相对位置
-        relative_idx = [i - chunk_start for i in idx]
-        IMlist = IM_chunk[relative_idx, :].tolist()
-        
-        # convert IMlist (N_same_ReprBldID_PSPA x N_sim_1_bld) to one row
-        IMlist = [item for sublist in IMlist for item in sublist]
-        
-        # sim_loss: List of simulated loss values for each IM
-        sim_loss = BldPSPA_ReprBld.SimLossRandomly(
-            ReprPSPAID=ReprPSPAID, IM=IMlist, losstype=losstype, Nsim=[1]*len(IMlist)
-        )
-        
-        # since each element in sim_loss has only one value, flatten it
-        sim_loss = list(np.array(sim_loss).flatten())
-        # sim_loss has only one row. convert it to N_same_ReprBldID_PSPA x N_sim_1_bld
-        sim_loss = [sim_loss[i*N_sim_1_bld:(i+1)*N_sim_1_bld] for i in range(N_same_ReprBldID_PSPA)]
-        
-        # 准备当前ReprPSPAID的结果
+
+        if losstype in BldPSPA_ReprBld.LossTypes2:
+            # 连续损失分批进行NumPy抽样，控制四个工作进程同时运行时的峰值内存。
+            sim_loss = np.empty((len(relative_idx), N_sim_1_bld), dtype=np.float32)
+            simulation_batch_size = 250
+            for batch_start in range(0, len(relative_idx), simulation_batch_size):
+                batch_end = min(batch_start + simulation_batch_size, len(relative_idx))
+                batch_positions = relative_idx[batch_start:batch_end]
+                sim_loss[batch_start:batch_end] = BldPSPA_ReprBld.SimContinuousLossRandomlyArray(ReprPSPAID, IM_chunk[batch_positions, :], losstype)
+        else:
+            # 离散损伤状态沿用原有抽样方法，确保类别概率处理不变。
+            IMlist = IM_chunk[relative_idx, :].reshape(-1).tolist()
+            sim_loss = BldPSPA_ReprBld.SimLossRandomly(ReprPSPAID=ReprPSPAID, IM=IMlist, losstype=losstype, Nsim=[1] * len(IMlist))
+            sim_loss = np.asarray(sim_loss).reshape(len(relative_idx), N_sim_1_bld)
+
+        # 准备当前代表建筑对应的所有建筑结果。
         for i, idx_i in enumerate(idx):
             if losstype in BldPSPA_ReprBld.LossTypes1:
-                # Convert to categorical type to save space
-                sim_loss_cat = pd.Categorical(np.array(sim_loss[i]), categories=BldPSPA_ReprBld.DS_types)
+                sim_loss_cat = pd.Categorical(sim_loss[i], categories=BldPSPA_ReprBld.DS_types)
                 chunk_results[idx_i] = {'data': sim_loss_cat.codes, 'dtype': 'int8', 'compression': 'gzip', 'compression_opts': 9, 'shuffle': True}
             else:
                 chunk_results[idx_i] = {'data': sim_loss[i], 'dtype': 'float32', 'compression': 'gzip', 'compression_opts': 9, 'shuffle': True}

@@ -2,6 +2,11 @@
 
 - [ ] 新增增加地震事件次数的流程
 
+## [unreleased]
+
+- [x] 优化 `RegionalLossSim._simulate_regional_losses_multiprocess` 中连续损失的模拟
+- [x] 增加 `BldPSPA_ReprBld.SimContinuousLossRandomlyArray` 连续损失的模拟函数
+
 ## [0.3.15] - 2026-9-2
 
 - 修改 `IDA_ReprBld.py` 并行读取地震动的bug

@@ -28,6 +28,10 @@ DS_types = ['None', 'Slight', 'Moderate', 'Extensive', 'Complete']
 LossTypes1 = ['DS_Struct', 'DS_NonStruct_DriftSen', 'DS_NonStruct_AccelSen']
 LossTypes2 = ['RepairCost_Total', 'RepairCost_Struct', 'RepairCost_NonStruct_DriftSen','RepairCost_NonStruct_AccelSen', 'RepairTime', 'RecoveryTime', 'FunctionLossTime']
 
+# 每个工作进程只缓存实际用到的IM节点和损失分位数，避免按建筑块重复读取完整代表建筑结果。
+_LOSS_QUANTILE_CACHE = {}
+_RANDOM_GENERATOR = np.random.default_rng()
+
 
 def _LossSim_1Bld(row, h5pyFile: h5py.File, IDA_result_dir: Path, OutputDir: Path = None, N_Sim: int = 1000, BetaM: float = 0.0) -> tuple[pd.DataFrame, pd.DataFrame]:
     '''
@@ -467,3 +471,65 @@ def SimLossRandomly(ReprPSPAID: int, IM: list[float], losstype: str, Nsim: list[
     
     logger.debug(f"Completed simulation for {len(IM)} IM values")
     return sim_loss
+
+
+def _get_loss_quantiles(ReprPSPAID: int, losstype: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    读取并缓存一个代表建筑在各IM节点上的损失分位数。
+
+    Parameters:
+        ReprPSPAID (int): PSPA代表建筑编号。
+        losstype (str): 连续损失类型，例如RepairCost_Total或RepairTime。
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: 递增的IM节点，以及对应的101个损失分位数组成的矩阵。
+    """
+    cache_key = (int(ReprPSPAID), losstype)
+    if cache_key not in _LOSS_QUANTILE_CACHE:
+        with h5py.File(hdf5File, 'r') as f:
+            grp_bld = f[f'ReprBldID_{ReprPSPAID}']
+            im_group_names = sorted(grp_bld.keys(), key=lambda name: int(name.removeprefix('IM')))
+            # (n_IM,)
+            im_values = np.array([grp_bld[name].attrs['IM'] for name in im_group_names], dtype=np.float32)
+            # (n_IM, 101)
+            quantile_values = np.stack([grp_bld[name][losstype]['quantiles'][()] for name in im_group_names]).astype(np.float32)
+        _LOSS_QUANTILE_CACHE[cache_key] = (im_values, quantile_values)
+    return _LOSS_QUANTILE_CACHE[cache_key]
+
+
+def SimContinuousLossRandomlyArray(ReprPSPAID: int, IM: np.ndarray, losstype: str) -> np.ndarray:
+    """
+    使用NumPy批量模拟连续损失，统计含义与SimLossRandomly中的连续损失分支一致。
+
+    Parameters:
+        ReprPSPAID (int): PSPA代表建筑编号。
+        IM (np.ndarray): 任意形状的地震动强度数组。
+        losstype (str): 连续损失类型，必须属于LossTypes2。
+
+    Returns:
+        np.ndarray: 与IM形状相同的float32随机损失数组。
+    """
+    if losstype not in LossTypes2:
+        raise ValueError(f"losstype must be one of {LossTypes2}.")
+
+    im_array = np.asarray(IM, dtype=np.float32)
+    original_shape = im_array.shape
+    im_flat = im_array.reshape(-1)
+    im_nodes, quantile_values = _get_loss_quantiles(ReprPSPAID, losstype)
+
+    # 为每个IM找到相邻的两个代表建筑损失分布，超出节点范围时沿用端点分布。
+    right_indices = np.searchsorted(im_nodes, im_flat)
+    right_indices = np.clip(right_indices, 1, len(im_nodes) - 1)
+    left_indices = right_indices - 1
+
+    # 分别从相邻两个经验分布逆抽样，再按IM位置线性插值。
+    random_quantiles = _RANDOM_GENERATOR.random((2, im_flat.size), dtype=np.float32) * 100
+    quantile_indices = random_quantiles.astype(np.uint8)
+    quantile_fractions = random_quantiles - quantile_indices
+    loss_left = quantile_values[left_indices, quantile_indices[0]] + quantile_fractions[0] * (quantile_values[left_indices, quantile_indices[0] + 1] - quantile_values[left_indices, quantile_indices[0]])
+    loss_right = quantile_values[right_indices, quantile_indices[1]] + quantile_fractions[1] * (quantile_values[right_indices, quantile_indices[1] + 1] - quantile_values[right_indices, quantile_indices[1]])
+
+    interpolation_weights = (im_flat - im_nodes[left_indices]) / (im_nodes[right_indices] - im_nodes[left_indices])
+    interpolation_weights = np.clip(interpolation_weights, 0, 1)
+    simulated_loss = loss_left + interpolation_weights * (loss_right - loss_left)
+    return simulated_loss.astype(np.float32, copy=False).reshape(original_shape)

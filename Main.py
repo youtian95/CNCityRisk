@@ -96,6 +96,24 @@ WORKFLOW_RERUN_LOSS = dict(
     package_web=True      
 )
 
+# 成都中断后的续算流程：保留已经完成的震源、地震动、倒塌和维修费用结果，只补算维修时间。
+WORKFLOW_RESUME_REPAIR_TIME = dict(
+    prepare_buildings=False,
+    design_level=False,
+    classify_struct=False,
+    classify_pspa=False,
+    ida=False,
+    loss_repr=False,
+    eqsources=False,
+    im_sim=False,
+    regional_loss=True,
+    regional_loss_types=('RepairTime',),
+    annualized_risk=True,
+    maps=True,
+    cleanup_im_after_maps=True,
+    package_web=True,
+)
+
 def reproduce_wenchuan2008_event():
     '''
     Reproduce the building losses of the 2008 Wenchuan earthquake event
@@ -211,11 +229,12 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
     # 区域地震损失模拟
     if wf['regional_loss']:
         Bld_gdf = Utilities.get_CityBldData(CityName)
-        for loss_type in loss_types:
+        for loss_type in wf.get('regional_loss_types', loss_types):
             RegionalLossSim.simulate_regional_losses(
                 CityNameorRegionName=CityName,
                 Bld_gdf=Bld_gdf,
                 losstype=loss_type,
+                n_processes=4,
             )
 
     # results\AnnualizedRisk: 年化风险计算
@@ -248,11 +267,11 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
 
 if __name__ == '__main__':
 
-    CityName = '南京'
+    CityName = '成都'
 
     # 选择工作流：标准流程为 WORKFLOW_STANDARD，
     # 需要运行不同流程时，切换为文件顶部定义的其他预设（如 WORKFLOW_RERUN_LOSS）。
-    workflow = WORKFLOW_STANDARD
+    workflow = WORKFLOW_RESUME_REPAIR_TIME
 
     analyze_1_city(CityName, wf=workflow)
 
