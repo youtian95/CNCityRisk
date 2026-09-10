@@ -9,8 +9,10 @@
 流程切换方法：
     标准流程由文件顶部的 WORKFLOW_STANDARD 开关表记录，其中全部步骤为 True。
     需要运行不同流程时，复制一份预设并把不需要重跑的步骤改为 False，
-    然后在 __main__ 中把 workflow 指向该预设。``if 0`` 分支中的诊断图和
-    单事件示例不属于任何工作流，需要时手动打开。
+    然后在 __main__ 中把 workflow 指向该预设。预设还可写入可选键
+    ``regional_loss_types``（损失类型元组），只重算指定的区域损失类型，
+    缺省时重算全部三类。``if 0`` 分支中的诊断图和单事件示例不属于任何
+    工作流，需要时手动打开。
 
 当前标准流程的重复运行策略：
 
@@ -73,7 +75,8 @@ WORKFLOW_STANDARD = dict(
     im_sim=True,              # 城市地震动模拟（强制覆盖）
     regional_loss=True,       # 区域损失模拟（重算）
     annualized_risk=True,     # 年化风险计算（重算）
-    maps=True,                # IM/损失地图与损失统计（重算）
+    im_map=True,              # IM地图数据（随地震动重算）
+    maps=True,                # 损失地图与损失统计（重算）
     cleanup_im_after_maps=True, # 地图完成后删除已被最终结果替代的逐震源IM文件
     package_web=True,         # 打包网页静态地图数据（覆盖）
 )
@@ -91,27 +94,10 @@ WORKFLOW_RERUN_LOSS = dict(
     im_sim=False,
     regional_loss=True,
     annualized_risk=True,
+    im_map=False,
     maps=True,
     cleanup_im_after_maps=False,
     package_web=True      
-)
-
-# 成都中断后的续算流程：保留已经完成的震源、地震动、倒塌和维修费用结果，只补算维修时间。
-WORKFLOW_RESUME_REPAIR_TIME = dict(
-    prepare_buildings=False,
-    design_level=False,
-    classify_struct=False,
-    classify_pspa=False,
-    ida=False,
-    loss_repr=False,
-    eqsources=False,
-    im_sim=False,
-    regional_loss=True,
-    regional_loss_types=('RepairTime',),
-    annualized_risk=True,
-    maps=True,
-    cleanup_im_after_maps=True,
-    package_web=True,
 )
 
 def reproduce_wenchuan2008_event():
@@ -241,11 +227,13 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
     if wf['annualized_risk']:
         AnnualizedRisk.calculate_annualized_loss(CityName)
 
-    # results\Maps: IM 地图、损失地图与损失统计
+    # IM地图数据在地震动重算后覆盖生成；复用地震动时由函数内部判断是否已有结果。
+    im_map_path = None
+    if wf.get('im_map', wf['maps']):
+        im_map_path = CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=wf['im_sim'])
+
+    # results\Maps: 损失地图与损失统计
     if wf['maps']:
-        # 本次生成了新的地震动时，同步更新IM场地图数据。
-        if wf['im_sim']:
-            CreateRegionalMaps.create_mapdata_IM(CityName, Overwrite=True)
         # 建筑损失 MBTiles 地图
         for loss_type in loss_types:
             CreateRegionalMaps.create_mbtiles_city_regional_losses(
@@ -261,17 +249,17 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
                 LossType=loss_type,
             )
 
-        # 最终IM地图已生成，保留城市HDF5和震源映射，删除逐震源网格场。
-        if wf.get('cleanup_im_after_maps', False):
-            IMSim.cleanup_city_im_results(CityName, stage='after_maps')
+    # 仅在IM地图成功生成或确认已存在后，删除逐震源网格场。
+    if wf.get('cleanup_im_after_maps', False) and im_map_path is not None:
+        IMSim.cleanup_city_im_results(CityName, stage='after_maps')
 
 if __name__ == '__main__':
 
-    CityName = '成都'
+    CityName = '天津'
 
     # 选择工作流：标准流程为 WORKFLOW_STANDARD，
     # 需要运行不同流程时，切换为文件顶部定义的其他预设（如 WORKFLOW_RERUN_LOSS）。
-    workflow = WORKFLOW_RESUME_REPAIR_TIME
+    workflow = WORKFLOW_STANDARD
 
     analyze_1_city(CityName, wf=workflow)
 

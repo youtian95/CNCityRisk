@@ -31,7 +31,9 @@ def _read_record_txt_cached(in_filename: str, out_filename: str):
     返回：
         tuple[float, int]: 地震波时间步长和数据点数。
     """
-    if not Path(out_filename).exists():
+    # 上次分析中断时可能留下零字节缓存，这种文件必须重新生成。
+    output_path = Path(out_filename)
+    if not output_path.exists() or output_path.stat().st_size == 0:
         return _READ_RECORD_TXT_ORIGINAL(in_filename, out_filename)
 
     first_time = None

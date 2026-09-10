@@ -9,6 +9,10 @@ tmp/
 **/.vscode/
 figures/
 
+sources/
+
+docs/patent/
+
 # log files
 CNCityRisk/logs/
 *.log
