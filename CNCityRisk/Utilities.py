@@ -509,7 +509,8 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
         Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, POI, geometry. If no POI data found, None is returned.
     '''
 
-    CityPOIDir = list(POI_AMAP_PATH.glob(f'**/*{CityName}*'))
+    # 只匹配 POI 根目录下的城市文件夹，避免把文件夹内同名的 CSV 文件误认为多份城市数据
+    CityPOIDir = [path for path in POI_AMAP_PATH.iterdir() if path.is_dir() and CityName in path.name]
     if not CityPOIDir:
         warnings.warn(f"POI data not found for city {CityName}.", UserWarning)
         return None
