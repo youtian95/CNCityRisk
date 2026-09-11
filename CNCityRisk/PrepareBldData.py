@@ -238,7 +238,8 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
                 else:
                     logger.debug(f'No buildings removed in district {districtname}; skipping Parquet rewrite')
 
-        POI_available = False
+        # 已保存 POI 的中断任务仍需继续补充最近 POI，不能只在本次新搜索后才标记为可用
+        POI_available = 'POI' in district_gdf.columns
         if 'POI' not in district_gdf.columns:
             logger.info(f'Getting POI data for district {districtname}')
             district_gdf_new = SearchBldPOI_Local(city_name, district_gdf)

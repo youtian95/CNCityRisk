@@ -33,6 +33,7 @@ dependencies = [
     "pypinyin",
     "py7zr",
     "rasterio",
+    "scipy",
     "numpy==1.26.2",
     "cnmaps",
 ]

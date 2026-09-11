@@ -9,6 +9,7 @@
 """
 
 from pathlib import Path
+from functools import lru_cache
 import tempfile
 import math
 import geopandas as gpd
@@ -19,6 +20,7 @@ from pypinyin import lazy_pinyin
 from joblib import load
 import pandas as pd
 from pyproj import Transformer
+from scipy.spatial import cKDTree
 from tqdm import tqdm
 import requests
 import configparser
@@ -441,60 +443,135 @@ def _GetCityBldData_FromSHP(CityName, Center = None, Radius = 2500):
 
     return city_gdf, city_polygon, rectangle, Center
 
-def __SearchPOIForBlds(Bld_gdf: gpd.GeoDataFrame, POI_gdf: gpd.GeoDataFrame, radius=2000, types='商务住宅|住宿服务', maxPOI=20):
-    '''
-    Get POI for buildings.
+def _get_city_poi_dir(CityName: str) -> Path | None:
+    """查找城市对应的 POI 数据文件夹。
+
     Parameters:
-        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, geometry
-        POI_gdf (geopandas.geodataframe.GeoDataFrame): The POI data of the city. Columns include: geometry, 大类, 中类, 小类
-        radius: float
-        types: str. '|' separated POI types. e.g. '商务住宅|住宿服务'
-        maxPOI: int. Maximum number of POI to return.
+        CityName (str): 城市名称。
+
     Returns:
-        Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, POI, geometry
-            POI: list, the POI data of the building. [n_poi, 4] . e.g. [[Dist1, Cat1, Cat2, Cat3], ...]
-    '''
+        Path | None: 唯一的城市 POI 文件夹；没有数据时返回 None。
+    """
+    city_poi_dirs = [path for path in POI_AMAP_PATH.iterdir() if path.is_dir() and CityName in path.name]
+    if not city_poi_dirs:
+        return None
+    if len(city_poi_dirs) > 1:
+        raise Exception(f"Multiple POI data found for city {CityName}.")
+    return city_poi_dirs[0]
 
-    # create POI column if not exist
-    if 'POI' not in Bld_gdf.columns:
-        Bld_gdf['POI'] = None
 
-    if types is not None:
-        types = types.split('|')
-    
-    # change the crs to UTM so that the distance can be calculated in meters
-    POI_gdf.set_crs(epsg=4326, inplace=True)
-    utm_crs = POI_gdf.estimate_utm_crs()
-    POI_gdf.to_crs(utm_crs, inplace=True)
-    def filter_POI(row, POI_gdf: gpd.GeoDataFrame, radius, types, maxPOI):
-        # center of the building
-        center = Point(row['longitude'], row['latitude'])
-        transformer = Transformer.from_crs("EPSG:4326", utm_crs.srs, always_xy=True)
-        center = Point(transformer.transform(center.x, center.y))
-        # a rectangle mask centered at the building
-        rectangle = Polygon([(center.x - radius, center.y - radius), (center.x - radius, center.y + radius), (center.x + radius, center.y + radius), (center.x + radius, center.y - radius)])
-        # filter POI by rectangle
-        POI_gdf_filter = POI_gdf[POI_gdf.within(rectangle)].copy(deep=True)
-        # distance to the building
-        POI_gdf_filter.loc[:, 'distance'] = POI_gdf_filter.distance(center)
-        # filter POI by distance
-        POI_gdf_filter = POI_gdf_filter[POI_gdf_filter['distance'] < radius]
-        # filter POI by types
-        if types is not None:
-            POI_gdf_filter = POI_gdf_filter[POI_gdf_filter['大类'].isin(types)]
-        # reogranize the POI data
-        if POI_gdf_filter.shape[0] > 0:
-            POI_gdf_filter = POI_gdf_filter.sort_values('distance')
-        if POI_gdf_filter.shape[0] > maxPOI:
-            POI_gdf_filter = POI_gdf_filter.head(maxPOI)
-        # assign the found POI_gdf_filter to Bld_gdf
-        POI = POI_gdf_filter[['distance', '大类', '中类', '小类']].values.tolist()
-        return POI
+@lru_cache(maxsize=1)
+def _load_city_poi_data(CityName: str):
+    """读取并投影一个城市的 POI；同一进程中只读取一次。
 
-    tqdm.pandas(desc='Searching POI...')
-    Bld_gdf['POI'] = Bld_gdf.progress_apply(filter_POI, axis=1, POI_gdf=POI_gdf, radius=radius, types=types, maxPOI=maxPOI)
+    Parameters:
+        CityName (str): 城市名称。
 
-    return Bld_gdf 
+    Returns:
+        tuple[pd.DataFrame, np.ndarray, object] | None: POI 分类数据、投影坐标和 UTM 坐标系。
+    """
+    city_poi_dir = _get_city_poi_dir(CityName)
+    if city_poi_dir is None:
+        return None
+
+    poi_frames = []
+    poi_files = list(city_poi_dir.glob('*.xlsx')) + list(city_poi_dir.glob('*.csv'))
+    for poi_file in poi_files:
+        df = pd.read_excel(poi_file) if poi_file.suffix == '.xlsx' else pd.read_csv(poi_file)
+
+        # 统一不同城市 POI 文件中的分类列名称
+        if '大类' not in df.columns and '分类1' in df.columns:
+            df = df.rename(columns={'分类1': '大类', '分类2': '中类', '分类3': '小类'})
+
+        # 统一不同来源 POI 文件中的经纬度列名称
+        coordinate_columns = next(((lon, lat) for lon, lat in [('wgs84lon', 'wgs84lat'), ('WGS84_经度', 'WGS84_纬度'), ('WGS84_Lng', 'WGS84_Lat'), ('经度', '纬度')] if lon in df.columns and lat in df.columns), None)
+        if coordinate_columns is None:
+            raise Exception(f"Coordinate columns (wgs84lon/wgs84lat, WGS84_经度/WGS84_纬度, WGS84_Lng/WGS84_Lat, or 经度/纬度) not found in {poi_file}.")
+        lon_col, lat_col = coordinate_columns
+        poi_frame = df[['大类', '中类', '小类']].copy()
+        poi_frame['longitude'] = pd.to_numeric(df[lon_col], errors='coerce')
+        poi_frame['latitude'] = pd.to_numeric(df[lat_col], errors='coerce')
+        poi_frames.append(poi_frame)
+
+    poi_data = pd.concat(poi_frames, ignore_index=True).dropna(subset=['longitude', 'latitude'])
+    poi_data[['大类', '中类', '小类']] = poi_data[['大类', '中类', '小类']].astype('category')
+
+    # 用城市经纬度范围确定与原实现一致的 UTM 分区，并一次性完成投影
+    bounds_points = gpd.GeoSeries([Point(poi_data['longitude'].min(), poi_data['latitude'].min()), Point(poi_data['longitude'].max(), poi_data['latitude'].max())], crs='EPSG:4326')
+    utm_crs = bounds_points.estimate_utm_crs()
+    transformer = Transformer.from_crs('EPSG:4326', utm_crs, always_xy=True)
+    poi_x, poi_y = transformer.transform(poi_data['longitude'].to_numpy(), poi_data['latitude'].to_numpy())
+    poi_xy = np.column_stack((poi_x, poi_y))
+    return poi_data.reset_index(drop=True), poi_xy, utm_crs
+
+
+@lru_cache(maxsize=2)
+def _get_city_poi_tree(CityName: str, types: tuple[str, ...] | None, unique_coordinates: bool):
+    """创建并缓存指定 POI 类型的城市空间索引。
+
+    Parameters:
+        CityName (str): 城市名称。
+        types (tuple[str, ...] | None): 需要保留的 POI 大类；None 表示全部类型。
+        unique_coordinates (bool): 是否对同坐标 POI 保留输入顺序中的第一条。
+
+    Returns:
+        tuple[cKDTree, np.ndarray, object] | None: KD 树、分类数组和 UTM 坐标系。
+    """
+    loaded = _load_city_poi_data(CityName)
+    if loaded is None:
+        return None
+    poi_data, poi_xy, utm_crs = loaded
+    mask = np.ones(len(poi_data), dtype=bool) if types is None else poi_data['大类'].isin(types).to_numpy()
+    categories = poi_data.loc[mask, ['大类', '中类', '小类']].to_numpy()
+    indexed_xy = poi_xy[mask]
+    if unique_coordinates:
+        # 最近 POI 只保留同坐标的第一条记录，使并列距离的选择与原始文件顺序一致
+        _, first_indices = np.unique(indexed_xy, axis=0, return_index=True)
+        first_indices.sort()
+        indexed_xy = indexed_xy[first_indices]
+        categories = categories[first_indices]
+    return cKDTree(indexed_xy), categories, utm_crs
+
+
+def _search_poi_for_buildings(CityName: str, Bld_gdf: gpd.GeoDataFrame, radius: float = 2000, types: str | None = '商务住宅|住宿服务', maxPOI: int = 20, batch_size: int = 100000):
+    """通过 KD 树批量查找每栋建筑附近的 POI。
+
+    Parameters:
+        CityName (str): 城市名称，用于选择并缓存 POI 数据。
+        Bld_gdf (gpd.GeoDataFrame): 包含 longitude 和 latitude 的建筑数据。
+        radius (float): POI 搜索半径，单位为米。
+        types (str | None): 用竖线分隔的 POI 大类；None 表示全部类型。
+        maxPOI (int): 每栋建筑最多保留的最近 POI 数量。
+        batch_size (int): 每批参与空间查询的建筑数量。
+
+    Returns:
+        gpd.GeoDataFrame | None: 新增 POI 列的建筑数据；城市无 POI 数据时返回 None。
+    """
+    type_tuple = None if types is None else tuple(types.split('|'))
+    indexed = _get_city_poi_tree(CityName, type_tuple, maxPOI == 1)
+    if indexed is None:
+        warnings.warn(f"POI data not found for city {CityName}.", UserWarning)
+        return None
+    poi_tree, categories, utm_crs = indexed
+
+    # 建筑坐标一次性投影，随后按批查询，避免逐建筑创建转换器和遍历全部 POI
+    transformer = Transformer.from_crs('EPSG:4326', utm_crs, always_xy=True)
+    building_x, building_y = transformer.transform(Bld_gdf['longitude'].to_numpy(), Bld_gdf['latitude'].to_numpy())
+    poi_results = [None] * len(Bld_gdf)
+    with tqdm(total=len(Bld_gdf), desc='Searching POI...', unit='building') as progress:
+        for start in range(0, len(Bld_gdf), batch_size):
+            end = min(start + batch_size, len(Bld_gdf))
+            building_xy = np.column_stack((building_x[start:end], building_y[start:end]))
+            distances, indices = poi_tree.query(building_xy, k=maxPOI, distance_upper_bound=radius, workers=-1)
+            distances = np.asarray(distances).reshape(end - start, -1)
+            indices = np.asarray(indices).reshape(end - start, -1)
+            for row_offset, (row_distances, row_indices) in enumerate(zip(distances, indices)):
+                valid = np.isfinite(row_distances) & (row_distances < radius) & (row_indices < len(categories))
+                poi_results[start + row_offset] = [[float(distance), *categories[index].tolist()] for distance, index in zip(row_distances[valid], row_indices[valid])]
+            progress.update(end - start)
+
+    Bld_gdf['POI'] = poi_results
+    return Bld_gdf
 
 def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住宿服务', maxPOI=20):
     '''
@@ -509,48 +586,7 @@ def SearchBldPOI_Local(CityName, Bld_gdf, radius=2000, types='商务住宅|住�
         Bld_gdf (geopandas.geodataframe.GeoDataFrame): The building data of the city. Columns include: longitude, latitude, POI, geometry. If no POI data found, None is returned.
     '''
 
-    # 只匹配 POI 根目录下的城市文件夹，避免把文件夹内同名的 CSV 文件误认为多份城市数据
-    CityPOIDir = [path for path in POI_AMAP_PATH.iterdir() if path.is_dir() and CityName in path.name]
-    if not CityPOIDir:
-        warnings.warn(f"POI data not found for city {CityName}.", UserWarning)
-        return None
-    elif len(CityPOIDir) > 1:
-        raise Exception(f"Multiple POI data found for city {CityName}.")
-    else:
-        CityPOIDir = CityPOIDir[0]
-
-    # Merge all POI data within CityPOIDir for the city
-    POI_files = list(CityPOIDir.glob('*.xlsx')) + list(CityPOIDir.glob('*.csv'))
-    POI_gdf = gpd.GeoDataFrame()
-    for POI_file in POI_files:
-        if POI_file.suffix == '.xlsx':
-            df = pd.read_excel(POI_file)
-        elif POI_file.suffix == '.csv':
-            df = pd.read_csv(POI_file)
-        else:
-            raise Exception(f"Unsupported file format: {POI_file.suffix}")
-        # 个别 POI 文件（如南京的生活服务）用 分类1~3 作为分类列，统一重命名为 大类/中类/小类
-        if '大类' not in df.columns and '分类1' in df.columns:
-            df = df.rename(columns={'分类1': '大类', '分类2': '中类', '分类3': '小类'})
-        if 'wgs84lon' in df.columns and 'wgs84lat' in df.columns:
-            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['wgs84lon'], df['wgs84lat']))
-        elif 'WGS84_经度' in df.columns and 'WGS84_纬度' in df.columns:
-            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['WGS84_经度'], df['WGS84_纬度']))
-        elif 'WGS84_Lng' in df.columns and 'WGS84_Lat' in df.columns:
-            # 个别 POI 文件（如南京的公交设施服务）使用英文坐标列名，按 WGS84_经度/纬度 同等处理
-            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['WGS84_Lng'], df['WGS84_Lat']))
-        elif '经度' in df.columns and '纬度' in df.columns:
-            gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df['经度'], df['纬度']))
-        else:
-            raise Exception(f"Coordinate columns (wgs84lon/wgs84lat, WGS84_经度/WGS84_纬度, WGS84_Lng/WGS84_Lat, or 经度/纬度) not found in {POI_file}.")
-        retained_keys = ['大类', '中类', '小类', 'geometry']
-        gdf = gdf[retained_keys]
-        POI_gdf = pd.concat([POI_gdf, gdf], ignore_index=True)
-
-    # for each building, search for POI
-    Bld_gdf = __SearchPOIForBlds(Bld_gdf, POI_gdf, radius=radius, types=types, maxPOI=maxPOI)
-
-    return Bld_gdf
+    return _search_poi_for_buildings(CityName, Bld_gdf, radius=radius, types=types, maxPOI=maxPOI)
 
 def PredictBldStructuralType(Bld_gdf, UsePOI = False):
     '''
