@@ -1,8 +1,8 @@
 """
 城市建筑代表类型分类模块。
 
-使用流程：读取城市各区县的 Parquet 建筑数据，按结构、层数、面积、
-抗震设计水平和场地类别分组，并写回代表建筑编号。
+使用流程：读取城市各区县的 Parquet 建筑数据，按指定属性分组，并写回代表建筑编号。
+IDA 分类不区分层面积，PSPA 分类仍保留层面积和建筑用途。
 
 输入：城市名称、分类标签、面积分组步长及代表建筑结果目录。
 输出：区县建筑与代表建筑的映射，以及代表建筑属性表。
@@ -23,7 +23,7 @@ from .Logger import get_logger
 logger = get_logger('ClassifyBld')
 
 # parameters
-STRUCT_CLASS_LABELS = ['story','area','structure','SeismicDesignLevel','EQGroup','SiteClass']
+STRUCT_CLASS_LABELS = ['story','structure','SeismicDesignLevel','EQGroup','SiteClass']
 PSPA_CLASS_LABELS = ['story','area','structure','SeismicDesignLevel','EQGroup','SiteClass','occupancy']
 INCR_LABELS = {'area': 100} # buildings that have similar plan area are grouped together
 REPR_BLD_DIR = (Path(__file__).parent / './results/ReprBld').resolve()
@@ -141,7 +141,9 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
         obj = BldCluster.BldCluster(temp_csv_path)
         all_columns = Bld_gdf.columns.tolist()
         IgnoredLabels = [col for col in all_columns if col not in TargetLabels]
-        obj.ClassifyBld(IgnoredLabels=IgnoredLabels, **IncrLabels)
+        # 只向 BldCluster 传入本次分类实际使用的连续变量分组步长。
+        active_increments = {label: increment for label, increment in IncrLabels.items() if label in TargetLabels}
+        obj.ClassifyBld(IgnoredLabels=IgnoredLabels, **active_increments)
         Bld2ReprBld = obj.Bld2ReprBld
         ReprBld = obj.ReprBld
     finally:
@@ -156,36 +158,39 @@ def BldClassify_District(CityName: str, DistrictName: str, SaveDir: Path = REPR_
     # remove the intermediate files
     _CleanIntermidiateFiles()
 
-    # merge the new generated representative buildings with the existing representative buildings
+    # 将本区新生成的代表建筑与既有代表建筑合并，并保留既有的稀疏 ID。
     if (SaveDir/REPR_BLD_FILE).exists():
-        # read the existing representative buildings
-        # ReprBld_old = pd.read_csv(SaveDir / REPR_BLD_FILE, index_col=0)
         ReprBld_old = ReadReprBld(ReprDir=SaveDir)
         headers = ReprBld_old.columns.to_list()
-        ReprBld_old['id_old'] = ReprBld_old.index
-        ReprBld['id_new'] = ReprBld.index
-        # round the float columns to 0 decimal places
+        ReprBld_compare = ReprBld[headers].copy()
+        ReprBld_compare['id_new'] = ReprBld_compare.index
+        ReprBld_old_compare = ReprBld_old.copy()
+        ReprBld_old_compare['id_old'] = ReprBld_old_compare.index
+
+        # 与既有逻辑一致，将连续分组标签按整数值比较。
         for col in headers:
             if ReprBld_old[col].dtype == 'float64':
-                ReprBld_old[col] = ReprBld_old[col].round(0)
-                ReprBld[col] = ReprBld[col].round(0)
-        # find the new representative buildings that are not in the existing representative buildings
-        df_temp = ReprBld_old.merge(ReprBld, on=headers, how='right')
-        row_not_in_old = df_temp[df_temp['id_old'].isna()]
-        if row_not_in_old.empty:
-            ReprBld_new = ReprBld_old.copy(deep=True)
-            ReprBld_new['id_new'] = np.nan
+                ReprBld_old_compare[col] = ReprBld_old_compare[col].round(0)
+                ReprBld_compare[col] = ReprBld_compare[col].round(0)
+
+        matched = ReprBld_compare.merge(ReprBld_old_compare, on=headers, how='left', validate='one_to_one')
+        missing = matched['id_old'].isna()
+        next_id = int(ReprBld_old.index.max()) + 1 if len(ReprBld_old) else 0
+        matched.loc[missing, 'id_old'] = np.arange(next_id, next_id + int(missing.sum()))
+        matched['id_old'] = matched['id_old'].astype(int)
+
+        # 新组合从历史最大 ID 后继续编号，避免与迁移后保留的稀疏 ID 冲突。
+        if missing.any():
+            new_local_ids = matched.loc[missing, 'id_new'].astype(int).to_numpy()
+            new_global_ids = matched.loc[missing, 'id_old'].astype(int).to_numpy()
+            new_rows = ReprBld.loc[new_local_ids, headers].copy()
+            new_rows.index = new_global_ids
+            ReprBld = pd.concat([ReprBld_old, new_rows]).sort_index()
         else:
-            ReprBld_new = pd.concat([ReprBld_old, row_not_in_old], ignore_index=True)
-        # update the representative buildings
-        ReprBld = ReprBld_new[headers]
-        # update the mapping
-        def find_new_id(x):
-            if x in row_not_in_old.index:
-                return ReprBld_new[ReprBld_new['id_new']==x].index[0].astype(int)
-            else:
-                return df_temp[df_temp['id_new']==x]['id_old'].values[0].astype(int)
-        Bld2ReprBld['Representative Buildings index'] = Bld2ReprBld['Representative Buildings index'].apply(find_new_id)
+            ReprBld = ReprBld_old
+
+        local_to_global = dict(zip(matched['id_new'].astype(int), matched['id_old'].astype(int)))
+        Bld2ReprBld['Representative Buildings index'] = Bld2ReprBld['Representative Buildings index'].map(local_to_global).astype(int)
 
     # assign the representative building to the BldDirtFile
     Bld_df = Bld_gdf.copy()

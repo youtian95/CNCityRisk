@@ -32,5 +32,6 @@ CNCityRisk/results/RegionalLossSim/*
 CNCityRisk/results/Maps/*
 CNCityRisk/results/ReprBld/*
 CNCityRisk/results/ReprBld_PSPA/*
+CNCityRisk/results/IDA_unused_after_area_migration/
 
 !*.gitkeep

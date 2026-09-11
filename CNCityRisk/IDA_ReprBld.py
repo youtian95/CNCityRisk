@@ -61,6 +61,9 @@ OutputDir = (Path(__file__).parent / './results/IDA_Results').resolve()
 EQInputDir = (Path(__file__).parent / './Data/FEMA_P-695_far-field_ground_motions').resolve()
 FEMTempDir = (Path(__file__).parent / './results/temp').resolve()
 
+# 当前层剪切模型中质量、刚度和承载力均随层面积同比例变化，因此使用统一面积进行 IDA。
+IDA_STANDARD_FLOOR_AREA = 1000.0
+
 def _IDA_1Bld(row, EQMetaDataFile: Path, IM_D_list: list, NumPool: int = 1, IDAOutputFormat: list = ['csv']):
     '''
     Incremental dynamic analysis for one representative building
@@ -79,7 +82,7 @@ def _IDA_1Bld(row, EQMetaDataFile: Path, IM_D_list: list, NumPool: int = 1, IDAO
     
     try:
         NumofStories = row['story']
-        FloorArea = row['area']
+        FloorArea = IDA_STANDARD_FLOOR_AREA
         StructuralType = row['structure']
         DesignInfo = {'Code': 'CN', 'SeismicDesignLevel': str(row['SeismicDesignLevel']), 'EQgroup': str(row['EQGroup']), 'SiteClass': str(row['SiteClass'])}
         
