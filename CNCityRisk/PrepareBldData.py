@@ -149,6 +149,9 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
 
             district_gdf = read_func(CityName, file_identifier)
 
+        # 汇总本区县的全部补充操作，完成后统一保存一次。
+        district_changed = district_gdf is None
+
         # read district building data from shapefile
         if district_gdf is None:
             logger.info(f'District {districtname} data does not exist, reading from province shapefile')
@@ -231,10 +234,7 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
                     continue
 
                 if filtered_count < old_count:
-                    if is_coordinate_mode:
-                        save_func(region_name, file_identifier, district_gdf)
-                    else:
-                        save_func(city_name, file_identifier, district_gdf)
+                    district_changed = True
                 else:
                     logger.debug(f'No buildings removed in district {districtname}; skipping Parquet rewrite')
 
@@ -246,34 +246,28 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
             if district_gdf_new is not None:
                 district_gdf = district_gdf_new
                 POI_available = True
-            if is_coordinate_mode:
-                save_func(region_name, file_identifier, district_gdf)
-            else:
-                save_func(city_name, file_identifier, district_gdf)
+                district_changed = True
 
         # predict building structure type
         if 'structure' not in district_gdf.columns:
             logger.info(f'Predicting building structure types for district {districtname}')
             UsePOI = POI_available
             district_gdf = PredictBldStructuralType(district_gdf, UsePOI=UsePOI)
-            if is_coordinate_mode:
-                save_func(region_name, file_identifier, district_gdf)
-            else:
-                save_func(city_name, file_identifier, district_gdf)
+            district_changed = True
 
         # get nearest POI
         if POI_available and ('POI_Nearest' not in district_gdf.columns):
             logger.info(f'Getting nearest POI for buildings in district {districtname}')
             district_gdf = SearchBldNearestPOI_Local(city_name, district_gdf)
-            if is_coordinate_mode:
-                save_func(region_name, file_identifier, district_gdf)
-            else:
-                save_func(city_name, file_identifier, district_gdf)
+            district_changed = True
 
         # derive building occupancy type from POI data
         if 'occupancy' not in district_gdf.columns:
             logger.info(f'Deriving building occupancy types for district {districtname}')
             district_gdf = DeriveBldOccupancyType(district_gdf)
+            district_changed = True
+
+        if district_changed:
             if is_coordinate_mode:
                 save_func(region_name, file_identifier, district_gdf)
             else:
