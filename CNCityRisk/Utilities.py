@@ -482,6 +482,8 @@ def _load_city_poi_data(CityName: str):
         # 统一不同城市 POI 文件中的分类列名称
         if '大类' not in df.columns and '分类1' in df.columns:
             df = df.rename(columns={'分类1': '大类', '分类2': '中类', '分类3': '小类'})
+        elif '大类' not in df.columns and 'type' in df.columns:
+            df = df.rename(columns={'type': '大类', 'Unnamed: 2': '中类', 'Unnamed: 3': '小类'})
 
         # 统一不同来源 POI 文件中的经纬度列名称
         coordinate_columns = next(((lon, lat) for lon, lat in [('wgs84lon', 'wgs84lat'), ('WGS84_经度', 'WGS84_纬度'), ('WGS84_Lng', 'WGS84_Lat'), ('经度', '纬度')] if lon in df.columns and lat in df.columns), None)
