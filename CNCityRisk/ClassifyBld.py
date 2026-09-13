@@ -75,7 +75,8 @@ def BldClassify(CityName: str=None, min_lon=None, max_lon=None, min_lat=None, ma
 
     # existing district file names
     RegionBldDir = Utilities.BLD_DATA_PATH / region_name
-    DistrictNames = [file.stem for file in RegionBldDir.glob('*.parquet')]
+    # 中断写入可能遗留临时Parquet，只读取正式区县文件
+    DistrictNames = [file.stem for file in RegionBldDir.glob('*.parquet') if not file.name.endswith('.tmp.parquet')]
 
     if not RegionBldDir.exists():
         logger.error(f'{RegionBldDir} does not exist. Please run prepare_building_data first.')

@@ -346,7 +346,7 @@ def get_rows_CityBldData(CityName) -> int:
     CityDir = BLD_DATA_PATH / CityName
     if not CityDir.exists():
         raise ValueError(f"City {CityName} data not found.")
-    DistrictNames = [f.stem for f in CityDir.glob('*.parquet')]
+    DistrictNames = [f.stem for f in CityDir.glob('*.parquet') if not f.name.endswith('.tmp.parquet')]
 
     for DistrictName in DistrictNames:
         row_count += Get_rows_DistrictBldGDF(CityName, DistrictName)
@@ -385,7 +385,7 @@ def get_CityBldData(CityName, columns = None) -> gpd.GeoDataFrame:
     CityDir = BLD_DATA_PATH / CityName
     if not CityDir.exists():
         raise ValueError(f"City {CityName} data not found.")
-    DistrictNames = [f.stem for f in CityDir.glob('*.parquet')]
+    DistrictNames = [f.stem for f in CityDir.glob('*.parquet') if not f.name.endswith('.tmp.parquet')]
 
     for DistrictName in DistrictNames:
         district_gdf = get_DistrictBldData(CityName, DistrictName, columns)

@@ -24,6 +24,7 @@ CNCityRisk/Data/POI_AMAP_2020/*
 CNCityRisk/Data/GEM-CHN-v2021.1.0/*
 
 CNCityRisk/results/BldData/**/*.csv
+CNCityRisk/results/BldData/东莞/东莞市.parquet
 CNCityRisk/results/*.html
 CNCityRisk/results/IDA_Results/*
 CNCityRisk/results/IMsim/*
