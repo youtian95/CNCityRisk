@@ -966,7 +966,7 @@ class DEMFetcher:
 
         DEMdata = rasterio.open(file_path)
         return DEMdata
-    
+
     def get_elevation(self, latitude, longitude, buffer = 0.5):
         """
         Get the elevation data for a specific coordinate point. e.g. latitude=34.05, longitude=-118.25, buffer=0.5 will fetch DEM data for the bounding box (34.0, 34.5, -118.5, -118.0). Then the elevation at the point (34.05, -118.25) will be extracted from the DEM data.
@@ -989,6 +989,59 @@ class DEMFetcher:
         row, col = DEMcontent.index(longitude, latitude)
         elevation = DEMcontent.read(1)[row, col]
         return elevation
+
+    def get_elevations(self, latitudes, longitudes, download_size=2.0):
+        """优先使用任意已有DEM缓存，并为未覆盖区域下载新分块。
+
+        Parameters:
+            latitudes: list[float] - 各场地点的纬度
+            longitudes: list[float] - 各场地点的经度
+            download_size: float - 新下载DEM的分块边长，单位为度，默认使用2度分块
+
+        Returns:
+            np.ndarray - 各场地点的高程，单位为米
+        """
+        latitudes = np.asarray(latitudes)
+        longitudes = np.asarray(longitudes)
+        elevations = np.empty(len(latitudes), dtype=np.float64)
+        pending = np.ones(len(latitudes), dtype=bool)
+
+        # 从文件名读取所有历史缓存范围，小分块优先，缓存粒度可以任意变化
+        pattern = re.compile(r'dem_data_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)\.tif')
+        cached_tiles = []
+        for file_path in self.output_dir.glob('dem_data_*.tif'):
+            match = pattern.fullmatch(file_path.name)
+            if match:
+                south, north, west, east = map(float, match.groups())
+                cached_tiles.append((file_path, south, north, west, east))
+        cached_tiles.sort(key=lambda tile: (tile[2] - tile[1]) * (tile[4] - tile[3]))
+
+        # 已有文件只要覆盖目标坐标即可复用，不要求文件范围与当前分析范围一致
+        for file_path, south, north, west, east in cached_tiles:
+            indices = np.flatnonzero(pending & (latitudes >= south) & (latitudes <= north) & (longitudes >= west) & (longitudes <= east))
+            if len(indices) == 0:
+                continue
+            with rasterio.open(file_path) as DEMcontent:
+                coordinates = zip(longitudes[indices], latitudes[indices])
+                elevations[indices] = np.fromiter((value[0] for value in DEMcontent.sample(coordinates)), dtype=np.float64, count=len(indices))
+            pending[indices] = False
+
+        # 对缓存未覆盖的点按固定2度网格下载，完成的文件也会进入上述通用缓存
+        while pending.any():
+            first_index = np.flatnonzero(pending)[0]
+            south = math.floor(latitudes[first_index] / download_size) * download_size
+            west = math.floor(longitudes[first_index] / download_size) * download_size
+            north = south + download_size
+            east = west + download_size
+            indices = np.flatnonzero(pending & (latitudes >= south) & (latitudes <= north) & (longitudes >= west) & (longitudes <= east))
+            DEMcontent = self.fetch_dem_data(south, north, west, east)
+            try:
+                coordinates = zip(longitudes[indices], latitudes[indices])
+                elevations[indices] = np.fromiter((value[0] for value in DEMcontent.sample(coordinates)), dtype=np.float64, count=len(indices))
+            finally:
+                DEMcontent.close()
+            pending[indices] = False
+        return elevations
  
 def Calc4CornersEQRupt(W_km, length_km, lat_Hypo, lon_Hypo, RuptureNormal_x, RuptureNormal_y, RuptureNormal_z) -> list:
     """
@@ -1078,30 +1131,32 @@ def CreateMeshedSiteFile(lonMin, lonMax, latMin, latMax, SiteFile = 'SiteFile.tx
     lonMax = lonMin + (Nlon - 1) * lonStep
     latMax = latMin + (Nlat - 1) * latStep
 
-    # Generate site file
+    # 生成所有场地点坐标
     IDvec = []
     lonVec = []
     latVec = []
-    TVec = []
     ID = 0
-
-    obj = SearchVs30()
-    obj_DEM = DEMFetcher()
     for row in range(Nlon):
         for col in range(Nlat):
             lon = lonMin + row * lonStep
             lat = latMin + col * latStep
-            elevation_km = obj_DEM.get_elevation(lat, lon) / 1000
-            Vs30_mpers = obj.GetVs30(lon, lat)
-            Z25_km = 999  # unknown
             ID += 1
-            period1 = 0
-            with open(SiteFile, 'a') as f:
-                f.write(f"{ID} {lon} {lat} {elevation_km} {period1} {Vs30_mpers} {Z25_km}\n")
             IDvec.append(ID)
             lonVec.append(lon)
             latVec.append(lat)
 
+    # 优先复用已有DEM范围，仅为未覆盖区域下载2度分块
+    obj_DEM = DEMFetcher()
+    elevationVec_km = obj_DEM.get_elevations(latVec, lonVec) / 1000
+
+    # 写入场地文件，Vs30仍使用原有数据与匹配方法
+    obj = SearchVs30()
+    Z25_km = 999  # 未知的2.5 km/s剪切波速层深度
+    period1 = 0
+    with open(SiteFile, 'w') as f:
+        for ID, lon, lat, elevation_km in zip(IDvec, lonVec, latVec, elevationVec_km):
+            Vs30_mpers = obj.GetVs30(lon, lat)
+            f.write(f"{ID} {lon} {lat} {elevation_km} {period1} {Vs30_mpers} {Z25_km}\n")
 
     return IDvec, lonVec, latVec
 
