@@ -25,6 +25,7 @@ dependencies = [
     "MDOFModel",
     "BldCluster",
     "h5py",
+    "xlrd",
     "folium",
     "cartopy",
     "dask",

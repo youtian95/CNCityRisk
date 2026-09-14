@@ -12,6 +12,7 @@ from pathlib import Path
 from functools import lru_cache
 import tempfile
 import math
+import time
 import geopandas as gpd
 from shapely.geometry import box, Polygon, Point, MultiPolygon
 from shapely import wkt
@@ -475,9 +476,9 @@ def _load_city_poi_data(CityName: str):
         return None
 
     poi_frames = []
-    poi_files = list(city_poi_dir.glob('*.xlsx')) + list(city_poi_dir.glob('*.csv'))
+    poi_files = list(city_poi_dir.glob('*.xlsx')) + list(city_poi_dir.glob('*.xls')) + list(city_poi_dir.glob('*.csv'))
     for poi_file in poi_files:
-        df = pd.read_excel(poi_file) if poi_file.suffix == '.xlsx' else pd.read_csv(poi_file)
+        df = pd.read_excel(poi_file) if poi_file.suffix in {'.xlsx', '.xls'} else pd.read_csv(poi_file)
 
         # 统一不同城市 POI 文件中的分类列名称
         if '大类' not in df.columns and '分类1' in df.columns:
@@ -862,7 +863,15 @@ def SaveDistrictBldGDF(LocationName: str = None, DistrictName: str = None, Bld_g
         temp_path = Path(temp_file.name)
     try:
         gdf.to_parquet(temp_path, compression='snappy', index=True)
-        temp_path.replace(file_path)
+        # Windows 可能在扫描大文件时短暂锁定目标路径，等待后再次执行原子替换
+        for attempt in range(5):
+            try:
+                temp_path.replace(file_path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(1)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
