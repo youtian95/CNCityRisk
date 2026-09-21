@@ -255,19 +255,20 @@ def analyze_1_city(CityName, wf=WORKFLOW_STANDARD):
 
 if __name__ == '__main__':
 
-    CityName = '杭州'
+    CityNames = ['苏州', '烟台', '长沙', '珠海']
 
     # 选择工作流：标准流程为 WORKFLOW_STANDARD，
     # 需要运行不同流程时，切换为文件顶部定义的其他预设（如 WORKFLOW_RERUN_LOSS）。
     workflow = WORKFLOW_STANDARD
 
-    analyze_1_city(CityName, wf=workflow)
+    for CityName in CityNames:
+        analyze_1_city(CityName, wf=workflow)
 
-    # 打包网页静态地图数据
-    if workflow['package_web']:
-        Utilities.package_web_static_map_data(
-            CityName=CityName,
-            WebStaticMapsDir=str(Path(r'H:\2025 - City Resilience Assessment\tmp') / CityName),
-            LossTypes=['DS_Struct', 'RepairCost_Total', 'RepairTime'],
-            Overwrite=True,
-        )
+        # 打包网页静态地图数据
+        if workflow['package_web']:
+            Utilities.package_web_static_map_data(
+                CityName=CityName,
+                WebStaticMapsDir=str(Path(r'H:\2025 - City Resilience Assessment\tmp') / CityName),
+                LossTypes=['DS_Struct', 'RepairCost_Total', 'RepairTime'],
+                Overwrite=True,
+            )

@@ -1,0 +1,4 @@
+#,,,"generated_by='OpenQuake engine 3.23.2', start_date='2026-09-18T10:17:10', checksum=2328717783"
+event_id,rlz_id,sig_inter_PGA,eps_inter_PGA
+0,276,3.726494E-01,7.753630E-01
+2,1638,3.999455E-01,-7.083892E-01

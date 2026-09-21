@@ -186,6 +186,12 @@ def _prepare_building_data_common(*, CityName=None, min_lon=None, max_lon=None, 
             
             # 处理建筑数据
             logger.debug('Converting building height to stories')
+            # 遥感反演高度可能因高程差噪声出现小幅负值；建筑高度不可能为负，因此截断为0并按现有规则归为1层。
+            negative_height_mask = district_gdf['height'] < 0
+            if negative_height_mask.any():
+                negative_heights = district_gdf.loc[negative_height_mask, 'height']
+                logger.warning(f'Found {negative_height_mask.sum()} buildings with negative heights in {districtname} (range: {negative_heights.min():.2f} to {negative_heights.max():.2f} m); clipping them to 0 m')
+                district_gdf.loc[negative_height_mask, 'height'] = 0
             district_gdf['story'] = district_gdf['height'].apply(height2story)
 
             logger.debug('Converting coordinate system to UTM')

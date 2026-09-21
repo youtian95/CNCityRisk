@@ -480,13 +480,30 @@ def _load_city_poi_data(CityName: str):
     for poi_file in poi_files:
         df = pd.read_excel(poi_file) if poi_file.suffix in {'.xlsx', '.xls'} else pd.read_csv(poi_file)
 
+        # 修正个别文件中的表头空格和录入笔误，不修改 POI 源文件
+        df = df.rename(columns={'小 类': '小类', 'WGS84_L纬度': 'WGS84_纬度'})
+
         # 统一不同城市 POI 文件中的分类列名称
         if '大类' not in df.columns and '分类1' in df.columns:
             df = df.rename(columns={'分类1': '大类', '分类2': '中类', '分类3': '小类'})
+        elif '大类' not in df.columns and '类别1' in df.columns:
+            df = df.rename(columns={'类别1': '大类', '类别2': '中类', '类别3': '小类'})
         elif '大类' not in df.columns and 'type1' in df.columns:
             df = df.rename(columns={'type1': '大类', 'type2': '中类', 'type3': '小类'})
         elif '大类' not in df.columns and 'type' in df.columns:
-            df = df.rename(columns={'type': '大类', 'Unnamed: 2': '中类', 'Unnamed: 3': '小类'})
+            if {'Unnamed: 2', 'Unnamed: 3'} <= set(df.columns):
+                df = df.rename(columns={'type': '大类', 'Unnamed: 2': '中类', 'Unnamed: 3': '小类'})
+            else:
+                # 高德原始 type 采用“大类;中类;小类”，多重分类时使用第一组分类
+                poi_types = df['type'].astype('string').str.split('|', n=1, regex=False).str[0].str.split(';', n=2, expand=True).reindex(columns=range(3))
+                df[['大类', '中类', '小类']] = poi_types.to_numpy()
+
+        # 个别文件将完整三级分类写入“大类”列，拆分后恢复统一格式
+        embedded_types = df['大类'].astype('string').str.contains(';', regex=False, na=False) & (df['中类'].isna() | df['小类'].isna())
+        if embedded_types.any():
+            df[['大类', '中类', '小类']] = df[['大类', '中类', '小类']].astype('object')
+            poi_types = df.loc[embedded_types, '大类'].astype('string').str.split('|', n=1, regex=False).str[0].str.split(';', n=2, expand=True).reindex(columns=range(3))
+            df.loc[embedded_types, ['大类', '中类', '小类']] = poi_types.to_numpy()
 
         # 统一不同来源 POI 文件中的经纬度列名称
         coordinate_columns = next(((lon, lat) for lon, lat in [('wgs84lon', 'wgs84lat'), ('WGS84_经度', 'WGS84_纬度'), ('WGS84_Lng', 'WGS84_Lat'), ('经度', '纬度'), ('lon', 'lat')] if lon in df.columns and lat in df.columns), None)
@@ -499,6 +516,8 @@ def _load_city_poi_data(CityName: str):
         poi_frames.append(poi_frame)
 
     poi_data = pd.concat(poi_frames, ignore_index=True).dropna(subset=['longitude', 'latitude'])
+    # POI 数据均位于中国，过滤坐标列中少量错位或异常录入值
+    poi_data = poi_data[poi_data['longitude'].between(73, 136) & poi_data['latitude'].between(18, 54)].copy()
     poi_data[['大类', '中类', '小类']] = poi_data[['大类', '中类', '小类']].astype('category')
 
     # 用城市经纬度范围确定与原实现一致的 UTM 分区，并一次性完成投影

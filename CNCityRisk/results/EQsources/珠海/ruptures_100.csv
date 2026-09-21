@@ -1,0 +1,8 @@
+#,,,,,,,,,,"generated_by='OpenQuake engine 3.23.2', start_date='2026-09-21T00:50:13', checksum=1794630119, investigation_time=1.0, ses_per_logic_tree_path=1"
+rup_id,source_id,multiplicity,mag,centroid_lon,centroid_lat,centroid_depth,trt,strike,dip,rake
+73014987105,bg_1_5!mfd_m10,1,5.050000E+00,1.128130E+02,2.173913E+01,1.500000E+01,Active-Stable Shallow Crust,2.999645E+01,8.000861E+01,0.000000E+00
+73015370325,bg_1_5!mfd_m10,1,5.850000E+00,1.123818E+02,2.181385E+01,1.500000E+01,Active-Stable Shallow Crust,2.999189E+01,8.000033E+01,0.000000E+00
+75162512063,bg_1_5!unit_m10,1,5.350000E+00,1.143392E+02,2.303983E+01,1.500000E+01,Active-Stable Shallow Crust,2.999828E+01,7.999818E+01,0.000000E+00
+75162855962,bg_1_5!unit_m10,1,5.650000E+00,1.123818E+02,2.181385E+01,1.500000E+01,Active-Stable Shallow Crust,1.500012E+02,4.499953E+01,9.000000E+01
+76235737523,bg_1_5!unit_m8,1,5.450000E+00,1.146051E+02,2.293870E+01,5.000000E+00,Active-Stable Shallow Crust,1.500035E+02,4.500129E+01,9.000000E+01
+76236585105,bg_1_5!unit_m8,1,5.250000E+00,1.126015E+02,2.157030E+01,1.500000E+01,Active-Stable Shallow Crust,2.999331E+01,8.000248E+01,0.000000E+00
