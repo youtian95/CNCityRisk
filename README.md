@@ -1,90 +1,96 @@
-# 国内主要城市的抗震韧性概率评估
+# Probabilistic Seismic Resilience Assessment of Major Chinese Cities
 
-## 项目简介
+[中文版](readme_zh.md)
 
-本项目评估了国内主要城市的抗震韧性，提供相关数据和分析结果。
+## Overview
 
-## 分析流程
+This project assesses the seismic resilience of major Chinese cities and provides the associated data and analysis results.
 
-### 一般城市分析流程
+## Analysis Workflow
 
-- `main.py`中`CityName`改为指定的城市名字，不要带“市”。
+### Standard City Analysis
 
-- 运行 `main.py`，会在`results`文件夹中生成分析结果。
+1. Set `CityNames` in `Main.py` to the Chinese names of the cities to analyse, without the suffix “市”. For example:
 
-- 运行完 `Utilities.package_web_static_map_data()` 之后，把5个文件夹中（AnnualizedRisk, IMmap, mbtiles, RegionalLossStatistics, Ruptures）的内容复制到`CNCityRiskWeb\static\maps`文件夹中，就能在网页上查看分析结果。
+   ```python
+   CityNames = ['北京']
+   ```
 
-### 特殊情况 - 汶川地震的区域分析验证
+2. Run `Main.py`. Analysis results are generated in `CNCityRisk/results/`.
 
-`main.py`中有一个`reproduce_wenchuan2008_event()`函数，用于复现汶川地震的区域分析验证。
+3. After running `Utilities.package_web_static_map_data()`, copy the five generated folders (`AnnualizedRisk`, `IMmap`, `mbtiles`, `RegionalLossStatistics`, and `Ruptures`) into `CNCityRiskWeb/static/maps/` to view the results in the web application.
 
-## 文件结构
+### Special Case: Validation Against the 2008 Wenchuan Earthquake
 
-- `config.ini`：【需要手动新建】配置文件，包括APIkey。内容：
+The `reproduce_wenchuan2008_event()` function in `Main.py` reproduces the regional analysis used for validation against the 2008 Wenchuan earthquake.
 
-  ```bash
+## Project Structure
+
+- `config.ini`: Configuration file containing API keys. Create this file manually with the following contents:
+
+  ```ini
   [API]
   api_key_OpenTopography = <YOUR API KEY>
   ```
 
-- `README.md`：项目简介和文件夹结构说明（即本文件）。
-- `Main.py`：主要分析步骤。
-- `requirements.txt`：项目所需的Python库列表。
-- `CNCityRisk/`： 包含数据处理和分析的脚本文件。
-  - `Data/`：存放原始数据和处理后的数据文件。
-    - `CNBldFootprintHeight_Che2024`：建筑轮廓和高度的源数据文件。
-    - `POI_AMAP_2020`：高德POI数据，用来预测结构类型
-    - `GEM-CHN-v2021.1.0`：震源模型，用来生成震源
-  - `results/`：存放中间分析结果
-    - `BldData`：处理后的建筑的基本信息，包括高度、面积、结构类型等，用于生成结构模型。
-    - `AnnualizedRisk`：【不可删除】年均损失计算
-    - `EQsources`：【不可删除】震源
-    - `IDA_Results`：【不可删除】IDA分析结果，每个文件代表一个Repr代表结构。
-    - `IMsim`：（一个城市的全部分析算完之后可以删除）地震动强度随机场模拟结果，建筑IM插值结果
-    - `IndBldLoss`：【不可删除】单体建筑的地震损失模拟结果
-    - `Maps`：【不可删除】生成用于展示的web地图数据
-    - `RegionalLossSim`：（一个城市的全部分析算完之后可以删除）区域损失模拟结果
-    - `ReprBld`：【不可删除】代表结构的结构模型参数，用于单体代表结构的IDA分析
-    - `ReprBld_PSPA`：【不可删除】代表建筑的信息，用于单体代表建筑地震损失分析
-    - `temp`：临时、中间结果。
-  - `PrepareBldData.py`：生成建筑基本信息数据。
-  - `plot_city.py`：对城市区域进行绘图。
-  - `ClassifyBld.py`：对建筑进行分类，生成代表建筑。
-  - `IDA_ReprBld.py`：对代表建筑进行IDA分析。
-  - ...
-  - `Utilities.py`：其他功能函数。
+- `README.md`: Project overview, workflow, directory structure, and setup instructions in English.
+- `readme_zh.md`: Original Chinese documentation.
+- `Main.py`: Main analysis workflow.
+- `requirements.txt`: Python dependencies.
+- `CNCityRisk/`: Data processing and analysis scripts.
+  - `Data/`: Raw and processed input data.
+    - `CNBldFootprintHeight_Che2024`: Source data for building footprints and heights.
+    - `POI_AMAP_2020`: Amap POI data used to predict structural types.
+    - `GEM-CHN-v2021.1.0`: Seismic source model used to generate earthquake scenarios.
+  - `results/`: Intermediate and final analysis results.
+    - `BldData`: Processed building attributes, including height, area, and structural type, used to generate structural models.
+    - `AnnualizedRisk`: Annualised loss calculations. **Do not delete.**
+    - `EQsources`: Seismic source and earthquake event data. **Do not delete.**
+    - `IDA_Results`: Incremental dynamic analysis (IDA) results, with one file per representative structure. **Do not delete.**
+    - `IMsim`: Simulated ground-motion intensity fields and intensities interpolated at building locations. Can be deleted after all analyses for a city are complete.
+    - `IndBldLoss`: Simulated seismic losses for individual buildings. **Do not delete.**
+    - `Maps`: Map data generated for web visualisation. **Do not delete.**
+    - `RegionalLossSim`: Regional loss simulation results. Can be deleted after all analyses for a city are complete.
+    - `ReprBld`: Structural model parameters for representative structures used in IDA. **Do not delete.**
+    - `ReprBld_PSPA`: Representative building information used in individual-building probabilistic seismic loss assessment. **Do not delete.**
+    - `temp`: Temporary and intermediate files.
+  - `PrepareBldData.py`: Prepares basic building attributes.
+  - `plot_city.py`: Plots city regions.
+  - `ClassifyBld.py`: Classifies buildings and selects representative buildings.
+  - `IDA_ReprBld.py`: Performs IDA for representative structures.
+  - Other analysis modules.
+  - `Utilities.py`: Utility functions.
 
-## 开发环境
+## Development Environment
 
-1. **创建虚拟环境**：
-    - 打开Anaconda Prompt（或终端）。
-    - 使用以下命令创建一个新的虚拟环境（例如，环境名称为`quake_resilience`）：
+1. **Create a virtual environment.** Open Anaconda Prompt or a terminal and run:
 
-      ```bash
-      conda create -n quake_resilience python=3.12 numpy==1.26.2
-      # 备注：numpy版本其他版本可能会与openquake.engine冲突
-      ```
+   ```bash
+   conda create -n quake_resilience python=3.12 numpy==1.26.2
+   ```
 
-2. **激活虚拟环境**：
+   NumPy is pinned to version 1.26.2 because other versions may conflict with `openquake.engine` in this environment.
 
-    ```bash
-    conda activate quake_resilience
-    ```
+2. **Activate the environment:**
 
-3. **安装依赖**：
+   ```bash
+   conda activate quake_resilience
+   ```
 
-    ```bash
-    pip install openquake.engine BldStructPred MDOFModel BldCluster h5py folium cartopy dask geojsoncontour addressparser pypinyin py7zr rasterio cnmaps
-    # 备注：numpy版本其他版本可能会与openquake.engine冲突
-    ```
+3. **Install dependencies:**
 
-4. **安装当前项目包**：
+   ```bash
+   pip install openquake.engine BldStructPred MDOFModel BldCluster h5py folium cartopy dask geojsoncontour addressparser pypinyin py7zr rasterio cnmaps
+   ```
 
-    ```bash
-    pip install -e .
-    ```
+4. **Install this project in editable mode** from the repository root:
 
-5. **运行项目**：
-  完成以上配置后，就可以运行`Main.py`文件
+   ```bash
+   pip install -e .
+   ```
 
+5. **Run the project:**
 
+   ```bash
+   python Main.py
+   ```

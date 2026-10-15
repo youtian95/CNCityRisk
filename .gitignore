@@ -5,6 +5,7 @@ dist/
 temp/
 tmp/
 论文/
+投稿/
 **/.env/
 **/.vscode/
 figures/
